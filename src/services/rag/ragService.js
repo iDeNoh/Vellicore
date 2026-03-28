@@ -1,5 +1,5 @@
 /**
- * RAG Service — ChromaDB interface for Tavern AI memory system.
+ * RAG Service — ChromaDB interface for Vellicore memory system.
  *
  * Three collections per campaign:
  *   {id}_entities  — NPCs, locations, objects. Upsert by entityId.

@@ -15,7 +15,7 @@ export default function AppShell() {
       <div className="h-8 drag-region flex items-center px-4 bg-ink-950 border-b border-ink-800">
         <div className="no-drag flex items-center gap-3 ml-20">
           <span className="font-display text-sm text-parchment-400 tracking-widest uppercase">
-            Tavern AI
+            Vellicore
           </span>
         </div>
         <div className="no-drag ml-auto flex items-center gap-2">

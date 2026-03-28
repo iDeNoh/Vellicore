@@ -1,5 +1,5 @@
 {
-  "name": "tavern-ai",
+  "name": "vellicore",
   "version": "0.1.0",
   "description": "AI-powered tabletop RPG with local image generation and TTS",
   "main": "electron/main.js",
@@ -41,8 +41,8 @@
     "wait-on": "^7.2.0"
   },
   "build": {
-    "appId": "com.tavern.ai",
-    "productName": "Tavern AI",
+    "appId": "com.vellicore.app",
+    "productName": "Vellicore",
     "directories": {
       "output": "dist-electron"
     },

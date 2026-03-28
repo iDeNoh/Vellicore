@@ -118,7 +118,7 @@ export default function App() {
         if (window.tavern) {
           cfg = await window.tavern.config.load()
         } else {
-          const stored = localStorage.getItem('tavern-config')
+          const stored = localStorage.getItem('vellicore-config')
           cfg = stored ? JSON.parse(stored) : defaultConfig()
         }
         setConfig(cfg)

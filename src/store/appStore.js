@@ -42,7 +42,7 @@ export const useAppStore = create(
       if (window.tavern) {
         await window.tavern.config.save(updated)
       } else {
-        localStorage.setItem('tavern-config', JSON.stringify(updated))
+        localStorage.setItem('vellicore-config', JSON.stringify(updated))
       }
     },
   }))

@@ -1,6 +1,6 @@
 @echo off
 setlocal enabledelayedexpansion
-title Tavern AI Launcher
+title Vellicore Launcher
 color 0A
 
 :: ── Parse arguments ───────────────────────────────────────────────────────────
@@ -141,9 +141,9 @@ timeout /t 2 /nobreak >nul
 goto WAIT_KOKORO
 :KOKORO_DONE
 
-:: ── 4. Tavern AI ──────────────────────────────────────────────────────────────
+:: ── 4. Vellicore ──────────────────────────────────────────────────────────────
 
-echo  [4/4] Launching Tavern AI...
+echo  [4/4] Launching Vellicore...
 echo.
 
 cd /d E:\AI\tavern-ai
@@ -153,7 +153,7 @@ call npm run dev
 :: ── Done ──────────────────────────────────────────────────────────────────────
 
 echo.
-echo  Tavern AI has closed.
+echo  Vellicore has closed.
 echo  ChromaDB, SDNext and Kokoro are still running in their windows.
 echo  Close those windows manually when you are finished.
 echo.

@@ -1,11 +1,11 @@
-# Tavern AI
+# Vellicore
 
 An AI-powered tabletop RPG that runs entirely on your machine. Fully local image generation (SDNext), local TTS (Kokoro), and your choice of local (Ollama) or cloud (Claude API) for the AI Dungeon Master.
 
 ## Architecture
 
 ```
-tavern-ai/
+vellicore/
 ├── electron/               # Electron main process
 │   ├── main.js             # App window, IPC handlers, service health checks
 │   └── preload.js          # Secure renderer bridge (window.tavern API)

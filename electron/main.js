@@ -18,7 +18,7 @@ function initLogger() {
     fs.mkdirSync(LOG_DIR, { recursive: true })
     logStream = fs.createWriteStream(LOG_PATH, { flags: 'w', encoding: 'utf8' })
     const bar = '═'.repeat(60)
-    logStream.write(`${bar}\n  TAVERN AI SESSION LOG\n  ${new Date().toISOString()}\n${bar}\n\n`)
+    logStream.write(`${bar}\n  VELLICORE SESSION LOG\n  ${new Date().toISOString()}\n${bar}\n\n`)
   } catch (e) {
     console.error('[Logger] init failed:', e.message)
   }
@@ -75,7 +75,7 @@ function createWindow() {
 
 app.whenReady().then(() => {
   initLogger()
-  log('STARTUP', `Tavern AI starting — isDev=${isDev}`)
+  log('STARTUP', `Vellicore starting — isDev=${isDev}`)
   initDb()
   createWindow()
   app.on('activate', () => {

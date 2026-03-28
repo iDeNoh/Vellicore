@@ -80,7 +80,7 @@ export default function SetupPage() {
           <div className="text-center animate-fade-in">
             <div className="text-5xl mb-4">⚔</div>
             <h1 className="font-display text-4xl text-parchment-100 mb-3 tracking-wide">
-              Welcome to Tavern AI
+              Welcome to Vellicore
             </h1>
             <p className="font-body text-parchment-300 text-lg mb-2">
               An AI-powered tabletop RPG that runs entirely on your machine.

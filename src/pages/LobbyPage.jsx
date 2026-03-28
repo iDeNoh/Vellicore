@@ -53,7 +53,7 @@ export default function LobbyPage() {
       {/* ── Left: Campaign list ── */}
       <div className="w-72 border-r border-ink-700 flex flex-col shrink-0">
         <div className="p-5 border-b border-ink-700">
-          <h1 className="font-display text-xl text-parchment-100 tracking-wide mb-1">Tavern AI</h1>
+          <h1 className="font-display text-xl text-parchment-100 tracking-wide mb-1">Vellicore</h1>
           <p className="font-body text-xs text-parchment-500">Your campaigns</p>
         </div>
 
@@ -321,7 +321,7 @@ function WelcomePane({ onNewCampaign, onQuickStart }) {
       <div className="text-center max-w-md">
         <div className="text-6xl mb-6">⚔</div>
         <h2 className="font-display text-3xl text-parchment-100 mb-3 tracking-wide">
-          Welcome to Tavern AI
+          Welcome to Vellicore
         </h2>
         <p className="font-body text-parchment-400 mb-2">
           An AI-powered tabletop RPG that runs entirely on your machine.
