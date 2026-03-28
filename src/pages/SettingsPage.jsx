@@ -108,8 +108,9 @@ export default function SettingsPage() {
                   onChange={e => update('llm.provider', e.target.value)}>
                   <option value="ollama">Ollama (local, free)</option>
                   <option value="lmstudio">LM Studio (local, free)</option>
-                  <option value="claude">Claude API (cloud)</option>
-                  <option value="openai-compat">OpenAI-compatible endpoint</option>
+                  <option value="claude">Claude (Anthropic)</option>
+                  <option value="openai-compat">OpenAI / OpenAI-compatible</option>
+                  <option value="gemini">Gemini (Google)</option>
                 </select>
               </div>
 
@@ -199,6 +200,25 @@ export default function SettingsPage() {
                     <input className="input font-mono" type="password"
                       value={local.llm.openAiCompatKey}
                       onChange={e => update('llm.openAiCompatKey', e.target.value)} />
+                  </Field>
+                </>
+              )}
+
+              {local.llm.provider === 'gemini' && (
+                <>
+                  <Field label="API Key">
+                    <input className="input font-mono" type="password"
+                      placeholder="Get one free at aistudio.google.com"
+                      value={local.llm.geminiApiKey || ''}
+                      onChange={e => update('llm.geminiApiKey', e.target.value)} />
+                  </Field>
+                  <Field label="Model">
+                    <select className="input" value={local.llm.geminiModel || 'gemini-2.0-flash'}
+                      onChange={e => update('llm.geminiModel', e.target.value)}>
+                      <option value="gemini-2.0-flash">Gemini 2.0 Flash (fast, free tier)</option>
+                      <option value="gemini-2.5-flash-preview-04-17">Gemini 2.5 Flash (thinking)</option>
+                      <option value="gemini-2.5-pro-preview-03-25">Gemini 2.5 Pro (best quality)</option>
+                    </select>
                   </Field>
                 </>
               )}

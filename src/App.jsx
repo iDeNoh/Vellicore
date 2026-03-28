@@ -29,6 +29,8 @@ function defaultConfig() {
       openAiCompatUrl: '',
       openAiCompatKey: '',
       openAiCompatModel: '',
+      geminiApiKey: '',
+      geminiModel: 'gemini-2.0-flash',
     },
     image: {
       enabled: false,
@@ -125,7 +127,7 @@ export default function App() {
         wlog('INFO', 'BOOT', `Config loaded — provider=${cfg.llm?.provider || '?'}`)
 
         // First run = no API key set and no ollama configured
-        const hasLlm = cfg.llm.claudeApiKey || cfg.llm.ollamaUrl || cfg.llm.lmstudioUrl || cfg.llm.openAiCompatUrl
+        const hasLlm = cfg.llm.claudeApiKey || cfg.llm.geminiApiKey || cfg.llm.ollamaUrl || cfg.llm.lmstudioUrl || cfg.llm.openAiCompatUrl
         setFirstRun(!hasLlm)
 
         // Initialize SQLite database

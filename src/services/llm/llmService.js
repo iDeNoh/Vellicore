@@ -11,6 +11,7 @@ export const LLM_PROVIDERS = {
   OLLAMA: 'ollama',
   OPENAI_COMPAT: 'openai-compat',
   LMSTUDIO: 'lmstudio',   // LM Studio — aliases to openai-compat routing
+  GEMINI: 'gemini',        // Google Gemini — routes via OpenAI-compat endpoint
 }
 
 // LM Studio's default server address
@@ -79,6 +80,18 @@ export async function sendToLlm({ system, messages, config, maxTokens = 1024, te
           openAiCompatUrl: config.lmstudioUrl || config.openAiCompatUrl || LMSTUDIO_DEFAULT_URL,
           openAiCompatKey: config.lmstudioKey || config.openAiCompatKey || 'lm-studio',
           openAiCompatModel: config.lmstudioModel || config.openAiCompatModel || '',
+        },
+        maxTokens, temperature, onChunk,
+      })
+    case LLM_PROVIDERS.GEMINI:
+      // Google Gemini via its OpenAI-compatible endpoint
+      return sendToOpenAiCompat({
+        system, messages,
+        config: {
+          ...config,
+          openAiCompatUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
+          openAiCompatKey: config.geminiApiKey || '',
+          openAiCompatModel: config.geminiModel || 'gemini-2.0-flash',
         },
         maxTokens, temperature, onChunk,
       })
