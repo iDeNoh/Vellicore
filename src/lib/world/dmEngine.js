@@ -24,7 +24,12 @@ function logOutbound(system, messages, label) {
   try {
     const { addLlmLogEntry } = useGameStore.getState()
     const group = crypto.randomUUID()
-    if (system) addLlmLogEntry({ direction: 'outbound', role: 'system', content: system, group, label })
+    if (system) {
+      const content = typeof system === 'object'
+        ? `[STATIC]\n${system.static}\n\n[DYNAMIC]\n${system.dynamic || ''}`
+        : system
+      addLlmLogEntry({ direction: 'outbound', role: 'system', content, group, label })
+    }
     messages.forEach(msg => {
       addLlmLogEntry({ direction: 'outbound', role: msg.role, content: msg.content, group, label })
     })

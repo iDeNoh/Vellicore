@@ -18,20 +18,35 @@ import { getRulesContextString } from '@/lib/rules/rules'
 
 // ── System prompt builder ─────────────────────────────────────────────────────
 
+/**
+ * Build the DM system prompt split into two parts:
+ *
+ *   static  — persona, rules, campaign context, response format.
+ *             Identical every turn within a session → eligible for prompt caching.
+ *
+ *   dynamic — world state, characters, story, session history.
+ *             Changes each turn → always sent fresh.
+ *
+ * Claude callers use both parts with cache_control on the static block.
+ * Other providers concatenate them into a single string.
+ */
 export function buildDmSystemPrompt({ campaign, world, characters, story, sessionContext }) {
-  const sections = [
+  const staticPart = [
     getCorePersona(campaign?.storyStyle),
     getRulesContextString(),
     getCampaignContext(campaign),
+    getResponseFormat(),
+  ].filter(Boolean).join('\n\n---\n\n')
+
+  const dynamicPart = [
     getWorldContext(world),
     getCharacterContext(characters),
     getStoryContext(story),
     sessionContext ? `SESSION HISTORY:\n${sessionContext}` : null,
     getNarrativePlanContext(world, story),
-    getResponseFormat(),
-  ]
+  ].filter(Boolean).join('\n\n---\n\n')
 
-  return sections.filter(Boolean).join('\n\n---\n\n')
+  return { static: staticPart, dynamic: dynamicPart }
 }
 
 // ── Persona ───────────────────────────────────────────────────────────────────
@@ -201,7 +216,7 @@ function getStoryContext(story) {
     .map(([k]) => k.replace(/_/g, ' '))
 
   if (trueFlags.length) {
-    lines.push(`World events established: ${trueFlags.slice(-15).join(', ')}`)
+    lines.push(`World events established: ${trueFlags.slice(-10).join(', ')}`)
   }
 
   if (story.tension !== undefined) {
@@ -229,13 +244,17 @@ function getNarrativePlanContext(world, story) {
   if (plan.antagonistReveal) lines.push(`Antagonist revealed: Act ${plan.antagonistReveal}`)
 
   if (world.storyActs?.length) {
-    lines.push('\nPlanned story arc:')
-    for (const act of world.storyActs) {
-      const parts = [`  Act ${act.act} — ${act.title || `Act ${act.act}`}: ${act.summary || ''}`]
-      if (act.hook) parts.push(`Hook: ${act.hook}`)
-      if (act.climax) parts.push(`Climax: ${act.climax}`)
-      if (act.transition) parts.push(`Transition: ${act.transition}`)
-      lines.push(parts.join(' | '))
+    // Only include the current and next act — future acts are irrelevant noise
+    const relevantActs = world.storyActs.filter(a => a.act >= currentAct && a.act <= currentAct + 1)
+    if (relevantActs.length) {
+      lines.push('\nCurrent story arc:')
+      for (const act of relevantActs) {
+        const parts = [`  Act ${act.act} — ${act.title || `Act ${act.act}`}: ${act.summary || ''}`]
+        if (act.hook) parts.push(`Hook: ${act.hook}`)
+        if (act.climax) parts.push(`Climax: ${act.climax}`)
+        if (act.transition) parts.push(`Transition: ${act.transition}`)
+        lines.push(parts.join(' | '))
+      }
     }
   }
 

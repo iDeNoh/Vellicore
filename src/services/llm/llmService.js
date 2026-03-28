@@ -98,8 +98,23 @@ async function sendToClaude({ system, messages, config, maxTokens, temperature, 
     'Content-Type': 'application/json',
     'x-api-key': config.claudeApiKey,
     'anthropic-version': '2023-06-01',
+    'anthropic-beta': 'prompt-caching-2024-07-31',
   }
-  const body = { model, max_tokens: maxTokens, temperature, system, messages, stream: !!onChunk }
+
+  // Split system prompt support: { static, dynamic }
+  // The static block is marked cacheable — Claude won't re-bill it on cache hits.
+  // Plain strings (non-DM calls like summariseForMemory) pass through unchanged.
+  let systemPayload
+  if (system && typeof system === 'object' && 'static' in system) {
+    systemPayload = [
+      { type: 'text', text: system.static, cache_control: { type: 'ephemeral' } },
+      ...(system.dynamic ? [{ type: 'text', text: system.dynamic }] : []),
+    ]
+  } else {
+    systemPayload = system || ''
+  }
+
+  const body = { model, max_tokens: maxTokens, temperature, system: systemPayload, messages, stream: !!onChunk }
 
   const result = await llmFetch(url, headers, body)
 
@@ -121,10 +136,11 @@ async function sendToOllama({ system, messages, config, maxTokens, temperature, 
   const url = `${(config.ollamaUrl || 'http://localhost:11434').replace(/\/$/, '')}/api/chat`
   const model = config.ollamaModel || 'llama3.1'
   const headers = { 'Content-Type': 'application/json' }
+  const systemStr = system && typeof system === 'object' ? [system.static, system.dynamic].filter(Boolean).join('\n\n---\n\n') : (system || '')
   const body = {
     model,
     messages: [
-      ...(system ? [{ role: 'system', content: system }] : []),
+      ...(systemStr ? [{ role: 'system', content: systemStr }] : []),
       ...(messages || []),
     ],
     stream: !!onChunk,
@@ -152,8 +168,9 @@ async function sendToOpenAiCompat({ system, messages, config, maxTokens, tempera
 
   // Build messages — only include system when non-empty
   // LM Studio errors on null/undefined system content
+  const systemStr = system && typeof system === 'object' ? [system.static, system.dynamic].filter(Boolean).join('\n\n---\n\n') : (system || '')
   const builtMessages = [
-    ...(system && system.trim() ? [{ role: 'system', content: system }] : []),
+    ...(systemStr.trim() ? [{ role: 'system', content: systemStr }] : []),
     ...(messages || []),
   ]
 

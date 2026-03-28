@@ -5,7 +5,9 @@
       "Bash(python3 -c \":*)",
       "Bash(cmd /c \"python C:\\\\Users\\\\froms\\\\.claude\\\\projects\\\\e--AI-tavern-ai\\\\read_last.py 2>nul\")",
       "Bash(node -e \":*)",
-      "Read(//c/AI/chromadb/logs/**)"
+      "Read(//c/AI/chromadb/logs/**)",
+      "Bash(git add:*)",
+      "Bash(git commit -m \"Add Claude prompt caching + trim system prompt bloat:*)"
     ]
   }
 }

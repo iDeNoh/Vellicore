@@ -286,12 +286,16 @@ ipcMain.handle('llm:send', async (_, { url, headers, body }) => {
     : url.includes('lmstudio') ? 'LMStudio'
     : 'LLM'
   const msgCount = body.messages?.length ?? 0
-  const sysLen   = body.system?.length ?? 0
-  const label    = `${provider} | ${body.model || '?'} | ${msgCount} msgs | sys=${sysLen}ch | max_tokens=${body.max_tokens}`
+  // system may be a string or an array of cache blocks — normalise for logging
+  const sysText = Array.isArray(body.system)
+    ? body.system.map(b => b.text || '').join('\n\n')
+    : (body.system || '')
+  const sysLen  = sysText.length
+  const label   = `${provider} | ${body.model || '?'} | ${msgCount} msgs | sys=${sysLen}ch | max_tokens=${body.max_tokens}`
 
   // Log full outbound prompt (system + messages)
   const parts = []
-  if (body.system) parts.push(`── SYSTEM (${sysLen} chars) ──\n${body.system}`)
+  if (body.system) parts.push(`── SYSTEM (${sysLen} chars) ──\n${sysText}`)
   ;(body.messages || []).forEach(m => parts.push(`── ${m.role.toUpperCase()} ──\n${typeof m.content === 'string' ? m.content : JSON.stringify(m.content)}`))
   logBlock('LLM-OUT', label, parts.join('\n\n'))
 
