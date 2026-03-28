@@ -1,0 +1,64 @@
+{
+  "name": "tavern-ai",
+  "version": "0.1.0",
+  "description": "AI-powered tabletop RPG with local image generation and TTS",
+  "main": "electron/main.js",
+  "scripts": {
+    "dev": "concurrently \"npm run dev:vite\" \"npm run dev:electron\"",
+    "dev:vite": "vite --force",
+    "dev:electron": "wait-on http://localhost:5173 && electron .",
+    "build": "vite build && electron-builder",
+    "build:vite": "vite build",
+    "preview": "vite preview",
+    "lint": "eslint src --ext .js,.jsx",
+    "postinstall": "electron-rebuild -f -w better-sqlite3",
+    "rebuild": "electron-rebuild -f -w better-sqlite3"
+  },
+  "dependencies": {
+    "better-sqlite3": "^9.4.3",
+    "konva": "^9.3.6",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-konva": "^18.2.10",
+    "react-router-dom": "^6.22.0",
+    "zustand": "^4.5.2",
+    "immer": "^10.0.3",
+    "uuid": "^9.0.0",
+    "axios": "^1.6.7",
+    "clsx": "^2.1.0"
+  },
+  "devDependencies": {
+    "@electron/rebuild": "^3.6.0",
+    "@vitejs/plugin-react": "^4.2.1",
+    "autoprefixer": "^10.4.17",
+    "concurrently": "^8.2.2",
+    "electron": "^29.1.0",
+    "electron-builder": "^24.13.3",
+    "eslint": "^8.57.0",
+    "postcss": "^8.4.35",
+    "tailwindcss": "^3.4.1",
+    "vite": "^5.1.4",
+    "wait-on": "^7.2.0"
+  },
+  "build": {
+    "appId": "com.tavern.ai",
+    "productName": "Tavern AI",
+    "directories": {
+      "output": "dist-electron"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "resources/**/*"
+    ],
+    "mac": {
+      "category": "public.app-category.games"
+    },
+    "win": {
+      "target": "nsis"
+    },
+    "linux": {
+      "target": "AppImage"
+    }
+  }
+}

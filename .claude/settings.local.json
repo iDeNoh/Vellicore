@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find /e/AI/tavern-ai/src -type d -name *store* -o -type d -name *state* -o -type d -name *config*)",
+      "Bash(xargs grep:*)",
+      "Bash(xargs wc:*)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(find \"e:\\\\AI\\\\tavern-ai\\\\src\" -type f -name \"*.{js,jsx}\")"
+    ]
+  }
+}

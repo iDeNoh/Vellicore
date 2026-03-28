@@ -1,0 +1,154 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── Custom base styles ─────────────────────────────────────────────────── */
+
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+
+  html, body, #root {
+    height: 100%;
+    overflow: hidden;
+  }
+
+  /* Scrollbars */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: theme('colors.ink.500');
+    border-radius: 3px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: theme('colors.ink.400');
+  }
+
+  /* Selection */
+  ::selection {
+    background: theme('colors.arcane.600');
+    color: theme('colors.parchment.50');
+  }
+}
+
+/* ── Component layer ────────────────────────────────────────────────────── */
+
+@layer components {
+  /* Panel — main UI building block */
+  .panel {
+    @apply bg-ink-800 border border-ink-600 rounded-lg shadow-panel;
+  }
+
+  .panel-header {
+    @apply px-4 py-3 border-b border-ink-600 flex items-center gap-2;
+  }
+
+  /* Buttons */
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded px-4 py-2
+           font-ui text-sm font-medium transition-all duration-150
+           focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-offset-ink-900
+           disabled:opacity-40 disabled:cursor-not-allowed;
+  }
+
+  .btn-primary {
+    @apply btn bg-gold-500 text-ink-950 hover:bg-gold-400
+           focus:ring-gold-400 shadow-sm;
+  }
+
+  .btn-secondary {
+    @apply btn bg-ink-600 text-parchment-200 hover:bg-ink-500
+           border border-ink-500 focus:ring-ink-400;
+  }
+
+  .btn-danger {
+    @apply btn bg-crimson-600 text-parchment-50 hover:bg-crimson-500
+           focus:ring-crimson-400;
+  }
+
+  .btn-ghost {
+    @apply btn text-parchment-300 hover:text-parchment-100 hover:bg-ink-700
+           focus:ring-ink-400;
+  }
+
+  /* Form inputs */
+  .input {
+    @apply w-full rounded bg-ink-900 border border-ink-500 px-3 py-2
+           text-sm text-parchment-100 placeholder-ink-400
+           focus:outline-none focus:ring-1 focus:ring-gold-500 focus:border-gold-500
+           transition-colors duration-150;
+  }
+
+  .label {
+    @apply block text-xs font-ui font-medium text-parchment-300 mb-1;
+  }
+
+  /* Divider */
+  .divider {
+    @apply border-t border-ink-600;
+  }
+
+  /* Status dots */
+  .status-dot {
+    @apply w-2 h-2 rounded-full;
+  }
+
+  /* Narrative text */
+  .narrative {
+    @apply font-body text-base text-parchment-200 leading-relaxed;
+  }
+}
+
+/* ── Utility layer ──────────────────────────────────────────────────────── */
+
+@layer utilities {
+  .text-display {
+    font-family: theme('fontFamily.display');
+  }
+
+  .text-body {
+    font-family: theme('fontFamily.body');
+  }
+
+  .drag-region {
+    -webkit-app-region: drag;
+  }
+
+  .no-drag {
+    -webkit-app-region: no-drag;
+  }
+
+  /* Glow effects */
+  .glow-gold {
+    @apply shadow-glow-gold;
+  }
+
+  .glow-arcane {
+    @apply shadow-glow-arcane;
+  }
+}
+
+/* ── Page transitions ───────────────────────────────────────────────────── */
+
+.page-enter {
+  opacity: 0;
+  transform: translateY(6px);
+}
+
+.page-enter-active {
+  opacity: 1;
+  transform: translateY(0);
+  transition: opacity 250ms ease-out, transform 250ms ease-out;
+}
+
+/* ── Konva map canvas ───────────────────────────────────────────────────── */
+
+.map-container canvas {
+  display: block;
+}

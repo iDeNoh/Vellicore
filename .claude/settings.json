@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python \"C:\\\\Users\\\\froms\\\\.claude\\\\projects\\\\e--AI-tavern-ai\\\\read_transcript.py\")",
+      "Bash(python3 -c \":*)",
+      "Bash(cmd /c \"python C:\\\\Users\\\\froms\\\\.claude\\\\projects\\\\e--AI-tavern-ai\\\\read_last.py 2>nul\")",
+      "Bash(node -e \":*)",
+      "Read(//c/AI/chromadb/logs/**)"
+    ]
+  }
+}
