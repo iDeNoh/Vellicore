@@ -6,10 +6,12 @@ import { deleteCollections } from '@/services/rag/ragService'
 import { ATMOSPHERE_PRESETS, CAMPAIGN_TYPE_GROUPS, STORY_STYLES } from '@/lib/world/dmPrompts'
 import { ANCESTRIES, BACKGROUNDS } from '@/lib/rules/rules'
 import QuickStartFlow from '@/components/ui/QuickStartFlow'
+import { useIsMobile } from '@/hooks/useIsMobile'
 import clsx from 'clsx'
 
 export default function LobbyPage() {
   const navigate = useNavigate()
+  const isMobile = useIsMobile()
   const { setActiveCampaign } = useAppStore()
   const [campaignList, setCampaignList] = useState([])
   const [selected, setSelected] = useState(null)  // expanded campaign
@@ -17,6 +19,9 @@ export default function LobbyPage() {
   const [newFromSource, setNewFromSource] = useState(null)  // campaign to clone design from
   const [showQuickStart, setShowQuickStart] = useState(false)
   const [loading, setLoading] = useState(true)
+
+  // On mobile, track whether the detail pane is visible (true = showing detail/new, false = showing list)
+  const mobileShowDetail = isMobile && (selected || showNew || newFromSource || showQuickStart)
 
   useEffect(() => {
     campaignDb.getAll().then(list => { setCampaignList(list); setLoading(false) })
@@ -51,7 +56,11 @@ export default function LobbyPage() {
   return (
     <div className="h-full flex overflow-hidden bg-ink-950">
       {/* ── Left: Campaign list ── */}
-      <div className="w-72 border-r border-ink-700 flex flex-col shrink-0">
+      <div className={clsx(
+        'border-r border-ink-700 flex flex-col shrink-0',
+        'w-full md:w-72',                          // full-width on mobile, fixed sidebar on desktop
+        isMobile && mobileShowDetail && 'hidden',  // hide list when detail is open on mobile
+      )}>
         <div className="p-5 border-b border-ink-700">
           <h1 className="font-display text-xl text-parchment-100 tracking-wide mb-1">Vellicore</h1>
           <p className="font-body text-xs text-parchment-500">Your campaigns</p>
@@ -117,10 +126,28 @@ export default function LobbyPage() {
       </div>
 
       {/* ── Right: Detail / new campaign ── */}
-      <div className="flex-1 overflow-y-auto flex flex-col">
+      <div className={clsx(
+        'flex-1 overflow-y-auto flex flex-col',
+        isMobile && !mobileShowDetail && 'hidden', // hide detail when list is shown on mobile
+      )}>
         {showQuickStart ? (
+          <>
+          {isMobile && (
+            <button onClick={() => setShowQuickStart(false)}
+              className="flex items-center gap-2 px-4 py-3 text-sm font-ui text-parchment-400 hover:text-parchment-200 border-b border-ink-700">
+              ← Back
+            </button>
+          )}
           <QuickStartFlow onCancel={() => setShowQuickStart(false)} />
+          </>
         ) : showNew || newFromSource ? (
+          <>
+          {isMobile && (
+            <button onClick={() => { setShowNew(false); setNewFromSource(null) }}
+              className="flex items-center gap-2 px-4 py-3 text-sm font-ui text-parchment-400 hover:text-parchment-200 border-b border-ink-700">
+              ← Back
+            </button>
+          )}
           <NewCampaignForm
             initialValues={newFromSource}
             sourceId={newFromSource?.id}
@@ -137,7 +164,15 @@ export default function LobbyPage() {
             }}
             onCancel={() => { setShowNew(false); setNewFromSource(null) }}
           />
+          </>
         ) : selected ? (
+          <>
+          {isMobile && (
+            <button onClick={() => setSelected(null)}
+              className="flex items-center gap-2 px-4 py-3 text-sm font-ui text-parchment-400 hover:text-parchment-200 border-b border-ink-700">
+              ← Campaigns
+            </button>
+          )}
           <CampaignDetail
             campaign={selected}
             onPlay={() => openCampaign(selected.id)}
@@ -145,6 +180,7 @@ export default function LobbyPage() {
             onNewFrom={src => { setNewFromSource(src); setSelected(null) }}
             onDelete={e => deleteCampaign(selected.id, e)}
           />
+          </>
         ) : (
           <WelcomePane
             onNewCampaign={() => setShowNew(true)}

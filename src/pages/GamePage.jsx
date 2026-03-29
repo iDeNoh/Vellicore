@@ -11,7 +11,8 @@ import { useImagePipeline } from '@/hooks/useImagePipeline'
 import { useCombat } from '@/hooks/useCombat'
 import CombatTracker from '@/components/game/CombatTracker'
 
-import GameToolbar from '@/components/game/GameToolbar'
+import GameToolbar, { PANELS } from '@/components/game/GameToolbar'
+import { useIsMobile } from '@/hooks/useIsMobile'
 import ChatPanel from '@/components/game/ChatPanel'
 import CharacterPanel from '@/components/game/CharacterPanel'
 import WorldPanel from '@/components/game/WorldPanel'
@@ -66,6 +67,7 @@ function GamePageInner() {
   useImagePipeline()  // auto-generates NPC portraits and location images
   const { initCombat } = useCombat()
 
+  const isMobile = useIsMobile()
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [activePanel, setActivePanel] = useState('chat')
@@ -294,6 +296,24 @@ function GamePageInner() {
           </div>
         </div>
       </div>
+
+      {/* Mobile bottom tab bar — panel switcher */}
+      {isMobile && (
+        <div className="md:hidden flex shrink-0 border-t border-ink-700 bg-ink-900">
+          {PANELS.map(p => (
+            <button key={p.id} onClick={() => setActivePanel(p.id)}
+              className={clsx(
+                'flex-1 flex flex-col items-center py-2 gap-0.5 transition-all',
+                activePanel === p.id
+                  ? 'text-parchment-100 bg-ink-800'
+                  : 'text-parchment-600 hover:text-parchment-400'
+              )}>
+              <span className="text-base leading-none">{p.icon}</span>
+              <span className="text-[10px] font-ui">{p.label}</span>
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* End screen overlay — appears 2 s after GAME_OVER tag fires */}
       {showEndScreen && gameOver && (
