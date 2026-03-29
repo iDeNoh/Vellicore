@@ -4,6 +4,7 @@ import { useAppStore } from '@/store/appStore'
 import { initDatabase } from '@/services/db/database'
 import { fetchChatterboxVoices, checkKokoro } from '@/services/tts/ttsService'
 import { checkRagHealth } from '@/services/rag/ragService'
+import { remoteTavern, probeApiServer } from '@/lib/remoteTavern'
 
 // Pages
 import SetupPage from '@/pages/SetupPage'
@@ -53,6 +54,15 @@ function defaultConfig() {
       threshold: 0.65,
       maxResults: 5,
       storeAllResponses: false,
+    },
+    services: {
+      chromaPath:       'C:\\AI\\chromadb',
+      sdnextPath:       'E:\\AI\\SDNext',
+      sdnextArgs:       '--api --listen',
+      kokoroPath:       'C:\\AI\\kokoro',
+      kokoroScript:     'serve.py',
+      chatterboxPath:   'C:\\AI\\chatterbox',
+      chatterboxScript: 'app.py',
     },
   }
 }
@@ -105,6 +115,18 @@ export default function App() {
 
   useEffect(() => {
     async function boot() {
+      // If not running inside Electron, probe the companion API server.
+      // If reachable, wire up remoteTavern so all services work transparently.
+      if (!window.tavern) {
+        const reachable = await probeApiServer()
+        if (reachable) {
+          window.tavern = remoteTavern
+          console.info('[Boot] Remote mode: companion API server found — using REST bridge')
+        } else {
+          console.info('[Boot] Browser mode: no companion server — using local fallbacks')
+        }
+      }
+
       const wlog = (level, cat, msg) => {
         console.log(`[${cat}] ${msg}`)
         window.tavern?.log?.write(level, cat, msg)

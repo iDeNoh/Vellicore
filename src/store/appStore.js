@@ -105,6 +105,11 @@ export const useGameStore = create(
     isGeneratingImage: false,
     isSpeaking: false,
 
+    // Guards against running initCampaign more than once per campaign load.
+    // Stored in the Zustand store (not local React state) so it survives
+    // component remounts caused by HMR or React StrictMode.
+    dmInitialised: false,
+
     // End-of-story state — set when DM emits [GAME_OVER:]
     // { outcome: 'victory'|'defeat'|'ambiguous', epilogue: string }
     gameOver: null,
@@ -304,6 +309,7 @@ export const useGameStore = create(
 
     resetGame: () => set((s) => {
       s.campaign = null
+      s.dmInitialised = false
       s.world = { currentLocation: null, locations: {}, npcs: {}, factions: {}, discoveredLore: [] }
       s.characters = {}
       s.story = { currentAct: 1, activeQuests: [], completedQuests: [], globalFlags: {} }

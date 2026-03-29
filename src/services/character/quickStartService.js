@@ -72,7 +72,13 @@ Respond with ONLY valid JSON matching this exact structure:
 function parseQuickStartJson(raw) {
   if (!raw?.trim()) throw new Error('LLM returned an empty response.')
 
+  // Strip thinking tokens (Qwen 3, DeepSeek-R1, etc.)
   let cleaned = raw
+    .replace(/<think>[\s\S]*?<\/think>/gi, '')
+    .replace(/<\/think>/gi, '')
+    .trim()
+
+  cleaned = cleaned
     .replace(/^```json\s*/im, '')
     .replace(/^```\s*/im, '')
     .replace(/```\s*$/im, '')

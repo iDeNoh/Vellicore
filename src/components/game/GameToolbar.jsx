@@ -10,7 +10,7 @@ import WorldCodex from '@/components/game/WorldCodex'
 import SessionHistory from '@/components/game/SessionHistory'
 import clsx from 'clsx'
 
-export default function GameToolbar({ activePanel, onPanelChange }) {
+export default function GameToolbar({ activePanel, onPanelChange, autoMode, onToggleAutoMode }) {
   const navigate = useNavigate()
   const [ttsOpen, setTtsOpen] = useState(false)
   const [combatOpen, setCombatOpen] = useState(false)
@@ -101,6 +101,20 @@ export default function GameToolbar({ activePanel, onPanelChange }) {
           ⚔ Round {combat.round}
         </button>
       )}
+
+      {/* Autopilot toggle */}
+      <button
+        onClick={onToggleAutoMode}
+        className={clsx(
+          'no-drag flex items-center gap-1.5 px-2 py-1 rounded text-xs font-ui transition-all',
+          autoMode
+            ? 'text-arcane-300 bg-arcane-500/15 border border-arcane-500/40 animate-pulse-slow'
+            : 'text-parchment-500 hover:text-parchment-300 hover:bg-ink-800'
+        )}
+        title={autoMode ? 'Autopilot on — click to stop' : 'Enable autopilot mode'}
+      >
+        {autoMode ? '⏵ Auto' : '⏵ Auto'}
+      </button>
 
       {/* Spacer */}
       <div className="flex-1" />

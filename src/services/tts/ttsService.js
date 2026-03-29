@@ -649,7 +649,9 @@ async function fetchChatterboxAudio({ text, voice, config, temperature, speedFac
     text: text.trim(),   // paralinguistic tags kept — Chatterbox Turbo handles them
     predefined_voice_id: resolvedVoice,
     voice_mode: 'predefined',
-    speed_factor: baseSpeed * (speedFactor ?? 0.92),
+    // Turbo's time-stretch introduces artifacts at any speed other than 1.0.
+    // Standard model uses emotion-scaled speed.
+    speed_factor: isTurbo ? 1.0 : baseSpeed * (speedFactor ?? 0.92),
     output_format: 'wav',
     // Turbo model ignores these; only send for standard model
     ...(!isTurbo && {

@@ -105,6 +105,14 @@ export default function LobbyPage() {
           <button className="btn-ghost w-full text-sm" onClick={() => navigate('/settings')}>
             ⚙ Settings
           </button>
+          {typeof window !== 'undefined' && !!window.tavern && (
+            <button
+              className="btn-ghost w-full text-sm text-crimson-300 hover:text-crimson-200"
+              onClick={() => window.tavern.app.relaunch()}
+            >
+              ↺ Restart Vellicore
+            </button>
+          )}
         </div>
       </div>
 

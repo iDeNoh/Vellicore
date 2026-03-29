@@ -151,7 +151,11 @@ function getWorldContext(world) {
       lines.push(`NPCs present: ${loc.npcsPresent.join(', ')}`)
     }
     if (loc.exits?.length) {
-      lines.push(`Exits: ${loc.exits.join(', ')}`)
+      const exitList = loc.exits.map(id => {
+        const exitLoc = world.locations?.[id]
+        return exitLoc ? `${id} (${exitLoc.name})` : id
+      }).join(', ')
+      lines.push(`Exits: ${exitList}`)
     }
   }
 
@@ -337,8 +341,14 @@ Tag formats (exact — no variation):
   [ROLL: CharacterName — Stat — reason]
   [IMAGE: type — description]
   [COMBAT: Name | threatLevel | role]
+  [LOCATION: location_id | Location Name]
   [OOC: note]
   [GAME_OVER: outcome | epilogue]
+
+Location tracking — REQUIRED:
+- Whenever the characters physically move to a different location, emit [LOCATION: location_id | Location Name] on its own line at the end of the response.
+- Use the exact location id from the Exits list (e.g. loc_2, loc_3). If arriving at a location not yet in the exits list, invent a snake_case id.
+- Only emit this tag when the characters actually arrive somewhere new — not when they merely look toward it or consider going there.
 
 Story endings:
 - Use [GAME_OVER:] on the final line of a response when the story has genuinely ended — not as a threat or near-miss, only when the conclusion is truly reached.

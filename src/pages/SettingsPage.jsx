@@ -5,6 +5,7 @@ import { checkRagHealth } from '@/services/rag/ragService'
 import { campaigns as campaignDb } from '@/services/db/database'
 import { KOKORO_VOICES, setChatterboxVoicesCache, clearTtsCircuitBreaker } from '@/services/tts/ttsService'
 import { STORY_STYLES } from '@/lib/world/dmPrompts'
+import ServicePanel from '@/components/ui/ServicePanel'
 import clsx from 'clsx'
 
 const isElectron = typeof window !== 'undefined' && !!window.tavern
@@ -494,6 +495,10 @@ export default function SettingsPage() {
               </div>
             </Section>
           )}
+
+          <Section title="Services" icon="⚙">
+            <ServicePanel />
+          </Section>
 
           <div className="flex justify-end gap-3 pb-8">
             <button className="btn-ghost" onClick={() => navigate(-1)}>Cancel</button>

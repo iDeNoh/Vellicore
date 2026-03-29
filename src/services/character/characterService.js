@@ -58,10 +58,11 @@ export async function generateNames({ ancestry, background, traits, config }) {
 
   // Extract JSON array
   try {
-    const start = raw.indexOf('[')
-    const end = raw.lastIndexOf(']')
+    const stripped = raw.replace(/<think>[\s\S]*?<\/think>/gi, '').replace(/<\/think>/gi, '')
+    const start = stripped.indexOf('[')
+    const end = stripped.lastIndexOf(']')
     if (start !== -1 && end !== -1) {
-      const names = JSON.parse(raw.slice(start, end + 1))
+      const names = JSON.parse(stripped.slice(start, end + 1))
       if (Array.isArray(names) && names.length > 0) return names.filter(n => typeof n === 'string' && n.trim())
     }
   } catch { /* fall through */ }
@@ -93,7 +94,9 @@ export async function generateBackstoryOptions({ name, ancestry, background, tra
 
   // Try parsing as a { options: [...] } array
   try {
-    const cleaned = raw.replace(/^```json\s*/im, '').replace(/^```\s*/im, '').replace(/```\s*$/im, '').trim()
+    const cleaned = raw
+      .replace(/<think>[\s\S]*?<\/think>/gi, '').replace(/<\/think>/gi, '')
+      .replace(/^```json\s*/im, '').replace(/^```\s*/im, '').replace(/```\s*$/im, '').trim()
     const start = cleaned.indexOf('{')
     const end = cleaned.lastIndexOf('}')
     if (start !== -1 && end !== -1) {
@@ -217,6 +220,7 @@ async function extractBackstoryFromPlainText(existingRaw, name, ancestry, config
 function tryParseBackstoryJson(raw, name, ancestry) {
   try {
     let cleaned = raw
+      .replace(/<think>[\s\S]*?<\/think>/gi, '').replace(/<\/think>/gi, '')
       .replace(/^```json\s*/im, '')
       .replace(/^```\s*/im, '')
       .replace(/```\s*$/im, '')

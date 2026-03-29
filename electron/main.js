@@ -1,6 +1,14 @@
 const { app, BrowserWindow, ipcMain, shell, dialog } = require('electron')
+const { spawn } = require('child_process')
 const path = require('path')
 const fs = require('fs')
+
+// pdfjs-dist (bundled inside pdf-parse) references browser canvas globals at load time.
+// Stub them out so the module loads cleanly in the main process.
+if (!global.DOMMatrix)  global.DOMMatrix  = class DOMMatrix  { constructor() { return this } }
+if (!global.ImageData)  global.ImageData  = class ImageData  {}
+if (!global.Path2D)     global.Path2D     = class Path2D     {}
+const { PDFParse } = require('pdf-parse')
 
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged
 
@@ -78,6 +86,15 @@ app.whenReady().then(() => {
   log('STARTUP', `Vellicore starting — isDev=${isDev}`)
   initDb()
   createWindow()
+  // Start companion HTTP API so the UI is accessible from phones on the LAN
+  try {
+    const startApiServer = require('./apiServer')
+    // Pass a proxy so routes always hit the live tavernDb (set by initDb above)
+    const dbProxy = new Proxy({}, { get: (_, key) => tavernDb?.[key] })
+    startApiServer({ db: dbProxy, log, fetch })
+  } catch (e) {
+    log('API', `Companion API server failed to start: ${e.message}`, 'WARN')
+  }
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
@@ -197,6 +214,29 @@ ipcMain.handle('db:world:set',  (_, campaignId, world, story) => {
 
 ipcMain.handle('db:npcs:by-campaign', (_, campaignId) => tavernDb?.npcs.getByCampaign(campaignId) ?? [])
 ipcMain.handle('db:npcs:upsert',      (_, data)       => tavernDb?.npcs.upsert(data) ?? data.id)
+
+// ── IPC: PDF extraction ───────────────────────────────────────────────────────
+
+ipcMain.handle('fs:parse-pdf', async (_, buffer) => {
+  try {
+    const parser = new PDFParse({ data: Buffer.from(buffer) })
+    const result = await parser.getText()
+    const info   = await parser.getInfo()
+    await parser.destroy()
+    return { ok: true, text: result.text, pages: info.total }
+  } catch (err) {
+    log('PDF', `Parse failed: ${err.message}`, 'WARN')
+    return { ok: false, error: err.message }
+  }
+})
+
+// ── IPC: Resources ────────────────────────────────────────────────────────────
+
+ipcMain.handle('db:resources:by-campaign', (_, campaignId) => tavernDb?.resources.getByCampaign(campaignId) ?? [])
+ipcMain.handle('db:resources:get',         (_, id)         => tavernDb?.resources.getById(id) ?? null)
+ipcMain.handle('db:resources:create',      (_, data)       => tavernDb?.resources.create(data) ?? data)
+ipcMain.handle('db:resources:delete',      (_, id)         => { tavernDb?.resources.delete(id); return { ok: true } })
+ipcMain.handle('db:resources:set-indexed', (_, id, count)  => { tavernDb?.resources.setIndexed(id, count); return { ok: true } })
 
 // ── IPC: File system ──────────────────────────────────────────────────────────
 
@@ -502,3 +542,45 @@ ipcMain.handle('log:write', (_, { level, cat, msg }) => {
 })
 
 ipcMain.handle('log:get-path', () => LOG_PATH)
+
+// ── IPC: App control ──────────────────────────────────────────────────────────
+
+ipcMain.handle('app:relaunch', () => {
+  log('APP', 'Relaunch requested by renderer')
+  app.relaunch()
+  app.exit(0)
+})
+
+// ── IPC: Service launcher ─────────────────────────────────────────────────────
+// Spawns local backend services (ChromaDB, SDNext, Kokoro, Chatterbox) in a
+// new detached console window. Uses paths from config.services if set.
+
+ipcMain.handle('services:launch', async (_, { service, config }) => {
+  const svc = config?.services || {}
+
+  const commands = {
+    chroma:      { title: 'ChromaDB',      dir: svc.chromaPath    || 'C:\\AI\\chromadb',     cmd: 'start.bat' },
+    sdnext:      { title: 'SDNext',        dir: svc.sdnextPath    || 'E:\\AI\\SDNext',         cmd: `webui.bat ${svc.sdnextArgs || '--api --listen'}` },
+    kokoro:      { title: 'Kokoro TTS',    dir: svc.kokoroPath    || 'C:\\AI\\kokoro',         cmd: `venv\\Scripts\\activate && python ${svc.kokoroScript || 'serve.py'}` },
+    chatterbox:  { title: 'Chatterbox',    dir: svc.chatterboxPath || 'C:\\AI\\chatterbox',   cmd: `venv\\Scripts\\activate && python ${svc.chatterboxScript || 'app.py'}` },
+    ollama:      { title: 'Ollama',        dir: svc.ollamaPath    || 'C:\\Program Files\\Ollama', cmd: 'ollama serve' },
+  }
+
+  const def = commands[service]
+  if (!def) return { ok: false, error: `Unknown service: ${service}` }
+
+  try {
+    // Launch in a new cmd window so output is visible and the process is independent
+    const child = spawn('cmd', ['/c', `start "${def.title}" cmd /k "cd /d ${def.dir} && ${def.cmd}"`], {
+      detached: true,
+      shell: true,
+      stdio: 'ignore',
+    })
+    child.unref()
+    log('APP', `Launched service: ${service} (${def.title})`)
+    return { ok: true }
+  } catch (err) {
+    log('APP', `Failed to launch service ${service}: ${err.message}`, 'ERROR')
+    return { ok: false, error: err.message }
+  }
+})

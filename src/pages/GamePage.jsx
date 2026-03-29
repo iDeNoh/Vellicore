@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { useGameStore, useAppStore } from '@/store/appStore'
 import { campaigns as campaignDb, characters as characterDb } from '@/services/db/database'
 import { useDm } from '@/hooks/useDm'
+import { useAutopilot } from '@/hooks/useAutopilot'
 import { rollDice } from '@/lib/rules/rules'
 import { useSessionMemory } from '@/hooks/useSessionMemory'
 import { useGamePersistence, restoreCampaignState } from '@/hooks/useGamePersistence'
@@ -56,9 +57,11 @@ function GamePageInner() {
     isDmThinking, resetGame,
     setWorld, setStory,
     gameOver, clearGameOver,
+    dmInitialised,
   } = useGameStore()
 
   const { initCampaign, sendPlayerAction, submitRolls } = useDm()
+  const { autoMode, toggleAutoMode } = useAutopilot({ sendPlayerAction, submitRolls })
   const { isNearBudget, budgetUsed, summariseAndCompress } = useSessionMemory(campaignId)
   useImagePipeline()  // auto-generates NPC portraits and location images
   const { initCombat } = useCombat()
@@ -66,7 +69,6 @@ function GamePageInner() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [activePanel, setActivePanel] = useState('chat')
-  const [initiated, setInitiated] = useState(false)
   const [isGeneratingWorld, setIsGeneratingWorld] = useState(false)
   const [combatOpen, setCombatOpen] = useState(false)
   const [showEndScreen, setShowEndScreen] = useState(false)
@@ -177,15 +179,16 @@ function GamePageInner() {
   // ── Init DM opening ───────────────────────────────────────────────────────
 
   useEffect(() => {
-    if (loading || initiated || !campaign || isDmThinking) return
+    if (loading || dmInitialised || !campaign || isDmThinking) return
     if (!config) return  // config loads async from Electron — wait for it
-    if (messages.length > 0) { setInitiated(true); return }
-    setInitiated(true)
+    // Mark as initialised immediately (in Zustand store — survives HMR remounts)
+    useGameStore.setState(s => { s.dmInitialised = true })
+    if (messages.length > 0) return  // resuming an existing session — skip opening scene
 
     const llmReady =
       (config?.llm?.provider === 'claude' && config?.llm?.claudeApiKey) ||
-      config?.llm?.provider === 'ollama' ||       // has default URL
-      config?.llm?.provider === 'lmstudio' ||     // has default URL
+      config?.llm?.provider === 'ollama' ||
+      config?.llm?.provider === 'lmstudio' ||
       (config?.llm?.provider === 'openai-compat' && config?.llm?.openAiCompatUrl)
 
     if (!llmReady) {
@@ -199,7 +202,7 @@ function GamePageInner() {
 
     setIsGeneratingWorld(true)
     initCampaign().finally(() => setIsGeneratingWorld(false))
-  }, [loading, campaign, initiated, config])
+  }, [loading, campaign, dmInitialised, config])
 
   // ── Manual roll from character panel stat click ───────────────────────────
 
@@ -238,7 +241,7 @@ function GamePageInner() {
 
   return (
     <div className="flex flex-col h-full bg-ink-950">
-      <GameToolbar activePanel={activePanel} onPanelChange={setActivePanel} />
+      <GameToolbar activePanel={activePanel} onPanelChange={setActivePanel} autoMode={autoMode} onToggleAutoMode={toggleAutoMode} />
 
       <div className="flex-1 overflow-hidden flex">
         {/* Mobile: single panel view */}

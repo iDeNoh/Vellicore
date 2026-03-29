@@ -40,6 +40,7 @@ export async function ensureCollections(campaignId) {
     `${campaignId}_entities`,
     `${campaignId}_events`,
     `${campaignId}_sessions`,
+    `${campaignId}_resources`,
   ]
 
   for (const name of names) {
@@ -60,6 +61,7 @@ export async function deleteCollections(campaignId) {
     `${campaignId}_entities`,
     `${campaignId}_events`,
     `${campaignId}_sessions`,
+    `${campaignId}_resources`,
   ]
   for (const name of names) {
     await chromaRequest('DELETE', `/api/v1/collections/${name}`).catch(() => {})
@@ -201,9 +203,10 @@ export async function retrieveContext(campaignId, query, opts = {}) {
   if (!queryEmbeddings) return []
 
   const collections = [
-    { name: `${campaignId}_entities`, type: 'entity' },
-    { name: `${campaignId}_events`,   type: 'event' },
-    { name: `${campaignId}_sessions`, type: 'session' },
+    { name: `${campaignId}_entities`,  type: 'entity' },
+    { name: `${campaignId}_events`,    type: 'event' },
+    { name: `${campaignId}_sessions`,  type: 'session' },
+    { name: `${campaignId}_resources`, type: 'resource' },
   ]
 
   const allResults = []
@@ -266,9 +269,10 @@ export function formatRetrievedContext(results) {
 
   const lines = ['RETRIEVED MEMORY (authoritative — trust this over conversation history):']
 
-  const entities = results.filter(r => r.type === 'entity')
-  const events   = results.filter(r => r.type === 'event')
-  const sessions = results.filter(r => r.type === 'session')
+  const entities  = results.filter(r => r.type === 'entity')
+  const events    = results.filter(r => r.type === 'event')
+  const sessions  = results.filter(r => r.type === 'session')
+  const resources = results.filter(r => r.type === 'resource')
 
   if (entities.length) {
     lines.push('\nKnown entities:')
@@ -286,8 +290,70 @@ export function formatRetrievedContext(results) {
     lines.push('\nPast session context:')
     sessions.forEach(r => lines.push(`  — ${r.content}`))
   }
+  if (resources.length) {
+    lines.push('\nREFERENCE MATERIAL (user-provided — treat as authoritative source):')
+    resources.forEach(r => {
+      const sourceName = r.metadata?.resource_name || 'Reference'
+      lines.push(`  [${sourceName}]: ${r.content}`)
+    })
+  }
 
   return lines.join('\n')
+}
+
+// ── Resource storage ──────────────────────────────────────────────────────────
+
+export async function storeResourceChunks(campaignId, resourceId, resourceName, chunks) {
+  const collectionName = `${campaignId}_resources`
+
+  // Ensure collection exists
+  const result = await chromaRequest('POST', '/api/v1/collections', {
+    name: collectionName,
+    get_or_create: true,
+    metadata: { 'hnsw:space': 'cosine', campaign_id: campaignId },
+  })
+  if (result.ok && result.data?.id) {
+    collectionUuids.set(collectionName, result.data.id)
+  }
+
+  const uuid = await resolveId(collectionName)
+  if (!uuid) throw new Error('Could not create resources collection')
+
+  // Embed and store in batches of 10
+  const batchSize = 10
+  for (let i = 0; i < chunks.length; i += batchSize) {
+    const batch = chunks.slice(i, i + batchSize)
+    const embeddings = await embedTexts(batch)
+    if (!embeddings) throw new Error('Embedding failed')
+
+    const ids = batch.map((_, j) => `${resourceId}_chunk_${i + j}`)
+    const metadatas = batch.map((_, j) => ({
+      resource_id: resourceId,
+      resource_name: resourceName,
+      campaign_id: campaignId,
+      chunk_index: i + j,
+    }))
+
+    await chromaRequest('POST', `/api/v1/collections/${uuid}/add`, {
+      ids,
+      embeddings,
+      documents: batch,
+      metadatas,
+    })
+  }
+}
+
+export async function deleteResourceChunks(campaignId, resourceId, chunkCount) {
+  const collectionName = `${campaignId}_resources`
+  try {
+    const uuid = await resolveId(collectionName)
+    if (!uuid) return
+    if (!chunkCount || chunkCount === 0) return
+    const ids = Array.from({ length: chunkCount }, (_, i) => `${resourceId}_chunk_${i}`)
+    await chromaRequest('POST', `/api/v1/collections/${uuid}/delete`, { ids })
+  } catch {
+    // Non-fatal — resource may not have been indexed
+  }
 }
 
 // ── World seeding ─────────────────────────────────────────────────────────────

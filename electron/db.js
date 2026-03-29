@@ -55,6 +55,7 @@ function runMigrations() {
   if (currentVersion < 2) applyMigration(2, migration_002)
   if (currentVersion < 3) applyMigration(3, migration_003)
   if (currentVersion < 4) applyMigration(4, migration_004)
+  if (currentVersion < 5) applyMigration(5, migration_005)
 }
 
 function applyMigration(version, fn) {
@@ -171,6 +172,25 @@ function migration_004() {
   try {
     db.exec(`ALTER TABLE characters ADD COLUMN traits TEXT DEFAULT '{}'`)
   } catch {}
+}
+
+// ── Migration 005: Campaign resources ─────────────────────────────────────────
+
+function migration_005() {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS campaign_resources (
+      id           TEXT PRIMARY KEY,
+      campaign_id  TEXT NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
+      name         TEXT NOT NULL,
+      type         TEXT NOT NULL DEFAULT 'text',
+      content      TEXT NOT NULL DEFAULT '',
+      chunk_count  INTEGER DEFAULT 0,
+      indexed      INTEGER DEFAULT 0,
+      created_at   INTEGER NOT NULL,
+      updated_at   INTEGER
+    );
+    CREATE INDEX IF NOT EXISTS idx_resources_campaign ON campaign_resources(campaign_id);
+  `)
 }
 
 // ── Migration 002: NPC & faction tracking ─────────────────────────────────────
@@ -673,4 +693,28 @@ module.exports = {
   sessions: { getByCampaign: sessionGetByCampaign, create: sessionCreate, end: sessionEnd },
   worldState: { get: worldStateGet, set: worldStateSet },
   npcs: { getByCampaign: npcGetByCampaign, upsert: npcUpsert },
+  resources: {
+    getByCampaign(campaignId) {
+      return db.prepare(`SELECT id, campaign_id, name, type, chunk_count, indexed, created_at,
+        substr(content, 1, 500) as preview FROM campaign_resources WHERE campaign_id = ? ORDER BY created_at DESC`)
+        .all(campaignId)
+    },
+    getById(id) {
+      return db.prepare('SELECT * FROM campaign_resources WHERE id = ?').get(id)
+    },
+    create(data) {
+      const id = data.id || `res_${Date.now()}`
+      db.prepare(`INSERT INTO campaign_resources (id, campaign_id, name, type, content, chunk_count, indexed, created_at)
+        VALUES (?, ?, ?, ?, ?, 0, 0, ?)`)
+        .run(id, data.campaignId, data.name, data.type || 'text', data.content || '', Date.now())
+      return { id, ...data }
+    },
+    delete(id) {
+      db.prepare('DELETE FROM campaign_resources WHERE id = ?').run(id)
+    },
+    setIndexed(id, chunkCount) {
+      db.prepare('UPDATE campaign_resources SET indexed = 1, chunk_count = ?, updated_at = ? WHERE id = ?')
+        .run(chunkCount, Date.now(), id)
+    },
+  },
 }

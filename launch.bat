@@ -12,15 +12,41 @@ for %%a in (%*) do (
 
 echo.
 echo  -------------------------------------------------------
-echo    T A V E R N   A I
+echo    V E L L I C O R E
 if !QUICK!==1 echo    Quick Launch Mode
 echo  -------------------------------------------------------
 echo.
 
+:: ── Read settings ─────────────────────────────────────────────────────────────
+:: Config is stored by Electron at %APPDATA%\Vellicore\config.json
+
+set "CFG=%APPDATA%\Vellicore\config.json"
+set RAG_ENABLED=1
+set IMG_ENABLED=0
+set TTS_ENABLED=0
+set TTS_PROVIDER=kokoro
+
+if exist "%CFG%" (
+    echo  Reading settings from %CFG%...
+    for /f "usebackq delims=" %%v in (`powershell -NoProfile -Command "try { $j=(Get-Content '%CFG%' -Raw | ConvertFrom-Json); if($j.rag.enabled -eq $true){'1'}else{'0'} } catch {'1'}"`) do set RAG_ENABLED=%%v
+    for /f "usebackq delims=" %%v in (`powershell -NoProfile -Command "try { $j=(Get-Content '%CFG%' -Raw | ConvertFrom-Json); if($j.image.enabled -eq $true){'1'}else{'0'} } catch {'0'}"`) do set IMG_ENABLED=%%v
+    for /f "usebackq delims=" %%v in (`powershell -NoProfile -Command "try { $j=(Get-Content '%CFG%' -Raw | ConvertFrom-Json); if($j.tts.enabled -eq $true){'1'}else{'0'} } catch {'0'}"`) do set TTS_ENABLED=%%v
+    for /f "usebackq delims=" %%v in (`powershell -NoProfile -Command "try { $j=(Get-Content '%CFG%' -Raw | ConvertFrom-Json); if($j.tts.provider){$j.tts.provider}else{'kokoro'} } catch {'kokoro'}"`) do set TTS_PROVIDER=%%v
+    echo  RAG=!RAG_ENABLED! / Image=!IMG_ENABLED! / TTS=!TTS_ENABLED! / Provider=!TTS_PROVIDER!
+) else (
+    echo  No config found ^(first run^) — using defaults ^(RAG on, image+TTS off^)
+)
+echo.
+
 :: ── 1. ChromaDB ──────────────────────────────────────────────────────────────
 
-echo  [1/4] ChromaDB (RAG Memory)...
+if !RAG_ENABLED!==0 (
+    echo  [1/4] ChromaDB — skipped ^(RAG disabled in settings^)
+    echo.
+    goto CHROMA_DONE
+)
 
+echo  [1/4] ChromaDB (RAG Memory)...
 curl -s --max-time 2 http://localhost:8765/api/v1/heartbeat >nul 2>&1
 if %errorlevel%==0 (
     echo  [OK] ChromaDB already running — skipping launch.
@@ -42,26 +68,25 @@ set /a TRIES=0
 :WAIT_CHROMA
 set /a TRIES+=1
 if !TRIES! GTR 15 (
-    echo  [WARN] ChromaDB did not respond after 30 seconds.
-    echo         RAG memory will be unavailable.
+    echo  [WARN] ChromaDB did not respond after 30s. RAG memory unavailable.
     echo.
     goto CHROMA_DONE
 )
 curl -s --max-time 2 http://localhost:8765/api/v1/heartbeat >nul 2>&1
-if %errorlevel%==0 (
-    echo  [OK] ChromaDB is ready.
-    echo.
-    goto CHROMA_DONE
-)
+if %errorlevel%==0 ( echo  [OK] ChromaDB ready. & echo. & goto CHROMA_DONE )
 timeout /t 2 /nobreak >nul
 goto WAIT_CHROMA
 :CHROMA_DONE
 
 :: ── 2. SDNext ────────────────────────────────────────────────────────────────
 
-echo  [2/4] SDNext (Stable Diffusion)...
+if !IMG_ENABLED!==0 (
+    echo  [2/4] SDNext — skipped ^(image generation disabled in settings^)
+    echo.
+    goto SDNEXT_DONE
+)
 
-:: Check if SDNext is already running by hitting its API
+echo  [2/4] SDNext (Image Generation)...
 curl -s --max-time 2 http://localhost:7860/sdapi/v1/sd-models >nul 2>&1
 if %errorlevel%==0 (
     echo  [OK] SDNext already running — skipping launch.
@@ -78,68 +103,80 @@ if !QUICK!==1 (
     goto SDNEXT_DONE
 )
 
-:: Poll the SDNext API — up to 3 minutes (60 x 3s)
-echo  Waiting for SDNext API...
+echo  Waiting for SDNext API (up to 3 minutes)...
 set /a TRIES=0
 :WAIT_SDNEXT
 set /a TRIES+=1
 if !TRIES! GTR 60 (
-    echo  [WARN] SDNext did not respond after 3 minutes.
-    echo         Continuing — check the SDNext window for errors.
+    echo  [WARN] SDNext did not respond after 3 minutes. Check the SDNext window.
     echo.
     goto SDNEXT_DONE
 )
 curl -s --max-time 2 http://localhost:7860/sdapi/v1/sd-models >nul 2>&1
-if %errorlevel%==0 (
-    echo  [OK] SDNext is ready.
-    echo.
-    goto SDNEXT_DONE
-)
+if %errorlevel%==0 ( echo  [OK] SDNext ready. & echo. & goto SDNEXT_DONE )
 timeout /t 3 /nobreak >nul
 goto WAIT_SDNEXT
 :SDNEXT_DONE
 
-:: ── 3. Kokoro TTS ─────────────────────────────────────────────────────────────
+:: ── 3. TTS ────────────────────────────────────────────────────────────────────
 
-echo  [3/4] Kokoro TTS...
-
-:: Check if Kokoro is already running
-curl -s --max-time 2 http://localhost:8880/health >nul 2>&1
-if %errorlevel%==0 (
-    echo  [OK] Kokoro already running — skipping launch.
+if !TTS_ENABLED!==0 (
+    echo  [3/4] TTS — skipped ^(TTS disabled in settings^)
     echo.
-    goto KOKORO_DONE
+    goto TTS_DONE
 )
 
-echo        Launching Kokoro TTS...
-start "Kokoro TTS" cmd /k "cd /d C:\AI\kokoro && call venv\Scripts\activate && python serve.py"
+if /i "!TTS_PROVIDER!"=="kokoro" (
+    echo  [3/4] Kokoro TTS...
+    curl -s --max-time 2 http://localhost:8880/health >nul 2>&1
+    if !errorlevel!==0 (
+        echo  [OK] Kokoro already running — skipping launch.
+        echo.
+        goto TTS_DONE
+    )
+    echo        Launching Kokoro TTS...
+    start "Kokoro TTS" cmd /k "cd /d C:\AI\kokoro && call venv\Scripts\activate && python serve.py"
 
-if !QUICK!==1 (
-    echo  [--quick] Skipping wait for Kokoro.
-    echo.
-    goto KOKORO_DONE
+    if !QUICK!==1 ( echo  [--quick] Skipping wait for Kokoro. & echo. & goto TTS_DONE )
+
+    echo  Waiting for Kokoro TTS...
+    set /a TRIES=0
+    :WAIT_KOKORO
+    set /a TRIES+=1
+    if !TRIES! GTR 15 ( echo  [WARN] Kokoro did not respond after 30s. & echo. & goto TTS_DONE )
+    curl -s --max-time 2 http://localhost:8880/health >nul 2>&1
+    if !errorlevel!==0 ( echo  [OK] Kokoro ready. & echo. & goto TTS_DONE )
+    timeout /t 2 /nobreak >nul
+    goto WAIT_KOKORO
 )
 
-:: Poll Kokoro health — up to 30 seconds (15 x 2s)
-echo  Waiting for Kokoro TTS...
-set /a TRIES=0
-:WAIT_KOKORO
-set /a TRIES+=1
-if !TRIES! GTR 15 (
-    echo  [WARN] Kokoro did not respond after 30 seconds.
-    echo         Continuing — TTS will be unavailable until it starts.
-    echo.
-    goto KOKORO_DONE
+if /i "!TTS_PROVIDER!"=="chatterbox" (
+    echo  [3/4] Chatterbox TTS...
+    curl -s --max-time 2 http://localhost:8004/health >nul 2>&1
+    if !errorlevel!==0 (
+        echo  [OK] Chatterbox already running — skipping launch.
+        echo.
+        goto TTS_DONE
+    )
+    echo        Launching Chatterbox...
+    start "Chatterbox TTS" cmd /k "cd /d C:\AI\chatterbox && call venv\Scripts\activate && python app.py"
+
+    if !QUICK!==1 ( echo  [--quick] Skipping wait for Chatterbox. & echo. & goto TTS_DONE )
+
+    echo  Waiting for Chatterbox...
+    set /a TRIES=0
+    :WAIT_CHATTERBOX
+    set /a TRIES+=1
+    if !TRIES! GTR 20 ( echo  [WARN] Chatterbox did not respond after 40s. & echo. & goto TTS_DONE )
+    curl -s --max-time 2 http://localhost:8004/health >nul 2>&1
+    if !errorlevel!==0 ( echo  [OK] Chatterbox ready. & echo. & goto TTS_DONE )
+    timeout /t 2 /nobreak >nul
+    goto WAIT_CHATTERBOX
 )
-curl -s --max-time 2 http://localhost:8880/health >nul 2>&1
-if %errorlevel%==0 (
-    echo  [OK] Kokoro TTS is ready.
-    echo.
-    goto KOKORO_DONE
-)
-timeout /t 2 /nobreak >nul
-goto WAIT_KOKORO
-:KOKORO_DONE
+
+echo  [3/4] TTS — unknown provider (!TTS_PROVIDER!), skipping.
+echo.
+:TTS_DONE
 
 :: ── 4. Vellicore ──────────────────────────────────────────────────────────────
 
@@ -154,7 +191,7 @@ call npm run dev
 
 echo.
 echo  Vellicore has closed.
-echo  ChromaDB, SDNext and Kokoro are still running in their windows.
+echo  Background services are still running in their windows.
 echo  Close those windows manually when you are finished.
 echo.
 pause

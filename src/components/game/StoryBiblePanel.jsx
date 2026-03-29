@@ -1,17 +1,21 @@
-import React, { useState } from 'react'
-import { useGameStore } from '@/store/appStore'
+import React, { useState, useEffect } from 'react'
+import { useGameStore, useAppStore } from '@/store/appStore'
+import { resources as resourcesDb } from '@/services/db/database'
+import { indexResource, removeResourceChunks } from '@/services/resources/resourceService'
 import clsx from 'clsx'
 
 export default function StoryBiblePanel({ isGenerating = false }) {
   const world = useGameStore(s => s.world)
   const story = useGameStore(s => s.story)
+  const campaignId = useGameStore(s => s.campaign?.id)
   const [tab, setTab] = useState('narrative')
 
   const tabs = [
-    { id: 'narrative', label: 'Narrative' },
-    { id: 'npcs', label: 'NPCs' },
-    { id: 'locations', label: 'Locations' },
-    { id: 'events', label: 'Events' },
+    { id: 'narrative',  label: 'Narrative' },
+    { id: 'npcs',       label: 'NPCs' },
+    { id: 'locations',  label: 'Locations' },
+    { id: 'events',     label: 'Quests & Flags' },
+    { id: 'resources',  label: 'Resources' },
   ]
 
   if (!world?.name) {
@@ -51,6 +55,7 @@ export default function StoryBiblePanel({ isGenerating = false }) {
         {tab === 'npcs' && <NpcsTab world={world} story={story} />}
         {tab === 'locations' && <LocationsTab world={world} />}
         {tab === 'events' && <EventsTab world={world} story={story} />}
+        {tab === 'resources' && <ResourcesTab campaignId={campaignId} />}
       </div>
     </div>
   )
@@ -673,6 +678,255 @@ function QuestBibleCard({ quest }) {
           )}
         </div>
       )}
+    </div>
+  )
+}
+
+// ── Resources tab ──────────────────────────────────────────────────────────────
+
+const RESOURCE_TYPES = [
+  { value: 'story',    label: 'Story / Outline' },
+  { value: 'rulebook', label: 'Rulebook / System' },
+  { value: 'lore',     label: 'Lore / World Bible' },
+  { value: 'notes',    label: 'Notes' },
+  { value: 'text',     label: 'Other' },
+]
+
+function ResourcesTab({ campaignId }) {
+  const [resources, setResources] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [showAdd, setShowAdd] = useState(false)
+  const [expanded, setExpanded] = useState(null)
+
+  const isElectron = typeof window !== 'undefined' && !!window.tavern
+
+  useEffect(() => {
+    if (!campaignId) return
+    resourcesDb.byCampaign(campaignId)
+      .then(list => { setResources(list || []); setLoading(false) })
+      .catch(() => setLoading(false))
+  }, [campaignId])
+
+  async function handleDelete(res) {
+    if (!confirm(`Delete "${res.name}"? This cannot be undone.`)) return
+    await removeResourceChunks({ campaignId, resourceId: res.id, chunkCount: res.chunk_count })
+    await resourcesDb.delete(res.id)
+    setResources(r => r.filter(x => x.id !== res.id))
+  }
+
+  async function handleAdded(newRes) {
+    setResources(r => [newRes, ...r])
+    setShowAdd(false)
+  }
+
+  if (!isElectron) {
+    return (
+      <div className="text-center py-8 px-4">
+        <p className="font-body text-parchment-400 text-sm">Resources require the Electron app.</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-3">
+      {!showAdd && (
+        <button
+          className="btn-secondary w-full text-sm"
+          onClick={() => setShowAdd(true)}
+        >
+          + Add Resource
+        </button>
+      )}
+
+      {showAdd && (
+        <AddResourceForm
+          campaignId={campaignId}
+          onAdded={handleAdded}
+          onCancel={() => setShowAdd(false)}
+        />
+      )}
+
+      {loading && (
+        <p className="text-xs text-parchment-500 text-center py-4 font-ui">Loading…</p>
+      )}
+
+      {!loading && resources.length === 0 && !showAdd && (
+        <div className="text-center py-8">
+          <p className="font-body text-parchment-400 text-sm">No resources added yet.</p>
+          <p className="font-body text-parchment-500 text-xs mt-1">
+            Add stories, rulebooks, or lore to influence the DM.
+          </p>
+        </div>
+      )}
+
+      {resources.map(res => (
+        <ResourceCard
+          key={res.id}
+          res={res}
+          expanded={expanded === res.id}
+          onToggle={() => setExpanded(expanded === res.id ? null : res.id)}
+          onDelete={() => handleDelete(res)}
+        />
+      ))}
+    </div>
+  )
+}
+
+function ResourceCard({ res, expanded, onToggle, onDelete }) {
+  const typeLabel = RESOURCE_TYPES.find(t => t.value === res.type)?.label || res.type
+  const date = new Date(res.created_at).toLocaleDateString()
+
+  return (
+    <div className="rounded border border-ink-700 bg-ink-800">
+      <div className="flex items-start gap-2 px-3 py-2 cursor-pointer" onClick={onToggle}>
+        <div className="flex-1 min-w-0">
+          <p className="font-ui text-xs text-parchment-200 truncate">{res.name}</p>
+          <p className="font-body text-xs text-parchment-500 mt-0.5">
+            {typeLabel} · {res.chunk_count > 0 ? `${res.chunk_count} chunks` : 'not indexed'} · {date}
+          </p>
+        </div>
+        <div className="flex items-center gap-1 shrink-0">
+          {res.indexed ? (
+            <span className="text-xs px-1.5 py-0.5 rounded font-ui text-forest-300 bg-forest-600/20">indexed</span>
+          ) : (
+            <span className="text-xs px-1.5 py-0.5 rounded font-ui text-gold-300 bg-gold-500/20">pending</span>
+          )}
+          <button
+            className="text-xs text-crimson-400 hover:text-crimson-300 px-1.5 py-1"
+            onClick={e => { e.stopPropagation(); onDelete() }}
+            title="Delete resource"
+          >
+            ✕
+          </button>
+          <span className="text-parchment-600 text-xs">{expanded ? '▲' : '▼'}</span>
+        </div>
+      </div>
+
+      {expanded && res.preview && (
+        <div className="px-3 pb-3 pt-1 border-t border-ink-700">
+          <p className="font-body text-xs text-parchment-400 leading-relaxed whitespace-pre-wrap">{res.preview}</p>
+          {res.preview?.length >= 499 && (
+            <p className="font-body text-xs text-parchment-600 mt-1 italic">— preview truncated —</p>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function AddResourceForm({ campaignId, onAdded, onCancel }) {
+  const [name, setName] = useState('')
+  const [type, setType] = useState('text')
+  const [content, setContent] = useState('')
+  const [indexing, setIndexing] = useState(false)
+  const [error, setError] = useState('')
+  const ragAvailable = useAppStore(s => s.ragAvailable)
+
+  async function handleFileUpload(e) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const baseName = file.name.replace(/\.[^.]+$/, '')
+    if (!name) setName(baseName)
+
+    if (file.name.toLowerCase().endsWith('.pdf')) {
+      setError('')
+      setIndexing(true)
+      try {
+        const buffer = await file.arrayBuffer()
+        const result = await window.tavern.fs.parsePdf(buffer)
+        if (!result.ok) throw new Error(result.error || 'PDF extraction failed')
+        setContent(result.text)
+        setError('')
+      } catch (err) {
+        setError(`PDF error: ${err.message}`)
+      } finally {
+        setIndexing(false)
+      }
+    } else {
+      const text = await file.text()
+      setContent(text)
+    }
+  }
+
+  async function handleSubmit() {
+    if (!name.trim()) { setError('Name is required.'); return }
+    if (!content.trim()) { setError('Content is required.'); return }
+    setError('')
+    setIndexing(true)
+
+    try {
+      const id = `res_${Date.now()}`
+      const saved = await resourcesDb.create({ id, campaignId, name: name.trim(), type, content: content.trim() })
+
+      let chunkCount = 0
+      if (ragAvailable) {
+        try {
+          chunkCount = await indexResource({ campaignId, resourceId: id, resourceName: name.trim(), content: content.trim() })
+          await resourcesDb.setIndexed(id, chunkCount)
+        } catch (err) {
+          console.warn('[Resources] Indexing failed (non-fatal):', err.message)
+        }
+      }
+
+      onAdded({ ...saved, id, chunk_count: chunkCount, indexed: ragAvailable ? 1 : 0, preview: content.slice(0, 500), created_at: Date.now() })
+    } catch (err) {
+      setError('Failed to save resource: ' + err.message)
+      setIndexing(false)
+    }
+  }
+
+  return (
+    <div className="bg-ink-800 rounded border border-ink-700 p-3 space-y-3">
+      <p className="font-ui text-xs text-parchment-300 font-medium">Add Reference Resource</p>
+
+      <div>
+        <label className="label">Name</label>
+        <input className="input text-sm" value={name} onChange={e => setName(e.target.value)}
+          placeholder="e.g. Custom Rulebook, Pre-written Story…" />
+      </div>
+
+      <div>
+        <label className="label">Type</label>
+        <select className="input text-sm" value={type} onChange={e => setType(e.target.value)}>
+          {RESOURCE_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+        </select>
+      </div>
+
+      <div>
+        <div className="flex items-center justify-between mb-1">
+          <label className="label mb-0">Content</label>
+          <label className="text-xs text-parchment-500 hover:text-parchment-300 cursor-pointer font-ui">
+            Upload file (.txt, .md, .pdf)
+            <input type="file" accept=".txt,.md,.pdf" className="hidden" onChange={handleFileUpload} />
+          </label>
+        </div>
+        <textarea
+          className="input text-sm font-mono h-32 resize-none"
+          value={content}
+          onChange={e => setContent(e.target.value)}
+          placeholder="Paste text here, or upload a file above…"
+        />
+        {content && (
+          <p className="text-xs text-parchment-500 mt-1 font-ui">
+            {content.length.toLocaleString()} characters
+          </p>
+        )}
+      </div>
+
+      {!ragAvailable && (
+        <p className="text-xs text-gold-400 font-ui">
+          ChromaDB is offline — resource will be saved but not indexed for retrieval until ChromaDB is available.
+        </p>
+      )}
+
+      {error && <p className="text-xs text-crimson-400 font-ui">{error}</p>}
+
+      <div className="flex gap-2">
+        <button className="btn-ghost text-sm flex-1" onClick={onCancel} disabled={indexing}>Cancel</button>
+        <button className="btn-primary text-sm flex-1" onClick={handleSubmit} disabled={indexing}>
+          {indexing ? 'Indexing…' : 'Add Resource'}
+        </button>
+      </div>
     </div>
   )
 }

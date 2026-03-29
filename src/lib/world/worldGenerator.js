@@ -494,8 +494,14 @@ function parseActJson(raw, actNumber) {
 export function extractJson(raw) {
   if (!raw) return {}
 
-  // Strip markdown fences (with multiline flag so ^ matches after newlines too)
+  // Strip thinking tokens (Qwen 3, DeepSeek-R1, etc.)
   let cleaned = raw
+    .replace(/<think>[\s\S]*?<\/think>/gi, '')
+    .replace(/<\/think>/gi, '')  // orphaned closing tag
+    .trim()
+
+  // Strip markdown fences (with multiline flag so ^ matches after newlines too)
+  cleaned = cleaned
     .replace(/^```json\s*/im, '')
     .replace(/^```\s*/im, '')
     .replace(/```\s*$/im, '')

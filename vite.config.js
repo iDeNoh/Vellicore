@@ -13,6 +13,7 @@ export default defineConfig({
   server: {
     port: 5173,
     strictPort: true,
+    host: true,  // bind to 0.0.0.0 — reachable from phone over local network
   },
   build: {
     outDir: 'dist',

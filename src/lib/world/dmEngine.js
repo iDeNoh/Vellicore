@@ -18,6 +18,42 @@ import { speakDmResponse, extractSpeakableText, stopSpeaking } from '@/services/
 import { generateWorld } from '@/lib/world/worldGenerator'
 import { parseStoryTags, applyStoryUpdates, createQuest, calculateTension } from '@/lib/story/storyEngine'
 
+// ── Think-token stream filter ─────────────────────────────────────────────────
+// Strips <think>...</think> blocks from streaming output (Qwen 3, DeepSeek-R1).
+// Returns a wrapped onChunk that only forwards content outside think blocks.
+function thinkFilter(onChunk) {
+  if (!onChunk) return (chunk) => { /* no-op */ }
+  let buf = ''
+  let inThink = false
+  return (chunk) => {
+    buf += chunk
+    let out = ''
+    while (buf.length > 0) {
+      if (inThink) {
+        const closeIdx = buf.indexOf('</think>')
+        if (closeIdx === -1) {
+          if (buf.length > 100000) buf = ''  // safety valve
+          break
+        }
+        buf = buf.slice(closeIdx + 8)  // 8 = '</think>'.length
+        inThink = false
+      } else {
+        const openIdx = buf.indexOf('<think>')
+        if (openIdx === -1) { out += buf; buf = ''; break }
+        out += buf.slice(0, openIdx)
+        buf = buf.slice(openIdx + 7)   // 7 = '<think>'.length
+        inThink = true
+      }
+    }
+    if (out) onChunk(out)
+  }
+}
+
+// Strip think tokens from a completed response string before parsing.
+function stripThink(text) {
+  return text.replace(/<think>[\s\S]*?<\/think>/gi, '').replace(/<\/think>/gi, '').trim()
+}
+
 // ── LLM narration log helpers ─────────────────────────────────────────────────
 
 function logOutbound(system, messages, label) {
@@ -90,6 +126,7 @@ export async function initialiseCampaign({ campaign, characters, config, onChunk
   const logGroup = logOutbound(systemPrompt, openingMessages, 'Opening scene')
 
   let fullText = ''
+  const filteredChunk = thinkFilter((chunk) => { onChunk?.(chunk) })
   await sendToLlm({
     system: systemPrompt,
     messages: openingMessages,
@@ -98,14 +135,15 @@ export async function initialiseCampaign({ campaign, characters, config, onChunk
     temperature: 0.9,
     onChunk: (chunk) => {
       fullText += chunk
-      onChunk?.(chunk)
+      filteredChunk(chunk)
     },
   })
 
   logInbound(logGroup, fullText)
+  const cleanText = stripThink(fullText)
 
-  const parsed = parseDmResponse(fullText)
-  const storyTags = parseStoryTags(fullText)
+  const parsed = parseDmResponse(cleanText)
+  const storyTags = parseStoryTags(cleanText)
 
   onComplete?.({ parsed, world, story, storyTags })
   return { parsed, world, story }
@@ -190,6 +228,7 @@ export async function playerTurn({
   const logGroup = logOutbound(systemPrompt, turnMessages, 'Player turn')
 
   let fullText = ''
+  const filteredChunk = thinkFilter((chunk) => { onChunk?.(chunk) })
 
   await sendToLlm({
     system: systemPrompt,
@@ -199,13 +238,14 @@ export async function playerTurn({
     temperature: 0.88,
     onChunk: (chunk) => {
       fullText += chunk
-      onChunk?.(chunk)
+      filteredChunk(chunk)
     },
   })
 
   logInbound(logGroup, fullText)
+  const cleanText = stripThink(fullText)
 
-  const parsed = parseDmResponse(fullText)
+  const parsed = parseDmResponse(cleanText)
 
   // Fire roll requests
   if (parsed.rolls.length > 0) {
@@ -245,6 +285,7 @@ export async function resolveRolls({
   const logGroup = logOutbound(systemPrompt, resolveMessages, 'Roll resolution')
 
   let fullText = ''
+  const filteredChunk = thinkFilter((chunk) => { onChunk?.(chunk) })
 
   await sendToLlm({
     system: systemPrompt,
@@ -254,15 +295,56 @@ export async function resolveRolls({
     temperature: 0.88,
     onChunk: (chunk) => {
       fullText += chunk
-      onChunk?.(chunk)
+      filteredChunk(chunk)
     },
   })
 
   logInbound(logGroup, fullText)
+  const cleanText = stripThink(fullText)
 
-  const parsed = parseDmResponse(fullText)
+  const parsed = parseDmResponse(cleanText)
   onComplete?.(parsed)
   return parsed
+}
+
+// ── Autopilot player action generation ───────────────────────────────────────
+
+/**
+ * Generate a short in-character player action for autopilot mode.
+ * Returns a single sentence (≤10 words) describing what the character does next.
+ */
+export async function generatePlayerAction({ campaign, characters, messages, config }) {
+  const char = Object.values(characters || {})[0]
+  if (!char) return null
+
+  const lastDm = [...messages].reverse().find(m => m.role === 'assistant')
+  if (!lastDm) return null
+
+  // Build a short recent-history snippet so the model knows what already happened
+  const recentMsgs = messages
+    .filter(m => (m.role === 'user' || m.role === 'assistant') && !m.streaming && m.content?.trim())
+    .slice(-10)  // last 10 messages (~5 exchanges)
+
+  const historyText = recentMsgs
+    .map(m => `${m.role === 'user' ? char.name : 'DM'}: ${m.content.slice(0, 200)}`)
+    .join('\n')
+
+  const system = `You are roleplaying as ${char.name}, a ${char.ancestry} ${char.background} in "${campaign?.name || 'an adventure'}".
+Write exactly ONE sentence (10 words or fewer) in first person describing what ${char.name} does or says next.
+Be specific, active, and varied — do NOT repeat an action that already appeared in the recent history below.
+No quotation marks. No explanation. Output only the sentence.`
+
+  let raw = ''
+  await sendToLlm({
+    system,
+    messages: [{ role: 'user', content: `Recent history:\n${historyText}\n\nThe DM just said:\n${lastDm.content}\n\nWhat does ${char.name} do next? One sentence, 10 words max. Do not repeat a recent action.` }],
+    config: config.llm,
+    maxTokens: 60,
+    temperature: 0.9,
+    onChunk: chunk => { raw += chunk },
+  })
+
+  return stripThink(raw).replace(/^["'*]+|["'*]+$/g, '').trim()
 }
 
 // ── Response parser ───────────────────────────────────────────────────────────

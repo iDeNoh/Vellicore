@@ -52,6 +52,15 @@ contextBridge.exposeInMainWorld('tavern', {
     upsert:     (data)        => ipcRenderer.invoke('db:npcs:upsert', data),
   },
 
+  // ── DB: Resources ─────────────────────────────────────────────────────────
+  resources: {
+    byCampaign: (campaignId) => ipcRenderer.invoke('db:resources:by-campaign', campaignId),
+    get:        (id)          => ipcRenderer.invoke('db:resources:get', id),
+    create:     (data)        => ipcRenderer.invoke('db:resources:create', data),
+    delete:     (id)          => ipcRenderer.invoke('db:resources:delete', id),
+    setIndexed: (id, count)   => ipcRenderer.invoke('db:resources:set-indexed', id, count),
+  },
+
   // ── DB path (legacy) ──────────────────────────────────────────────────────
   db: {
     getPath: () => ipcRenderer.invoke('db:get-path'),
@@ -62,6 +71,7 @@ contextBridge.exposeInMainWorld('tavern', {
     saveAsset:    (opts)      => ipcRenderer.invoke('fs:save-asset', opts),
     readAsset:    (filePath)  => ipcRenderer.invoke('fs:read-asset', filePath),
     openExternal: (url)       => ipcRenderer.invoke('fs:open-external', url),
+    parsePdf:     (buffer)    => ipcRenderer.invoke('fs:parse-pdf', buffer),
   },
 
   // ── Health checks ─────────────────────────────────────────────────────────
@@ -116,9 +126,15 @@ contextBridge.exposeInMainWorld('tavern', {
     getPath: ()                => ipcRenderer.invoke('log:get-path'),
   },
 
-  // ── App info ──────────────────────────────────────────────────────────────
+  // ── App info + control ────────────────────────────────────────────────────
   app: {
     version:  process.env.npm_package_version || '0.1.0',
     platform: process.platform,
+    relaunch: () => ipcRenderer.invoke('app:relaunch'),
+  },
+
+  // ── Service launcher ──────────────────────────────────────────────────────
+  services: {
+    launch: (service, config) => ipcRenderer.invoke('services:launch', { service, config }),
   },
 })
