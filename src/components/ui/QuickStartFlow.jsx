@@ -8,8 +8,10 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAppStore } from '@/store/appStore'
-import { campaigns as campaignDb, characters as characterDb } from '@/services/db/database'
+import { campaigns as campaignDb, characters as characterDb, resources as resourcesDb } from '@/services/db/database'
+import { indexResource } from '@/services/resources/resourceService'
 import { generateQuickStart } from '@/services/character/quickStartService'
+import LoreDocumentsPicker from '@/components/ui/LoreDocumentsPicker'
 import { generatePortrait, buildPortraitTags, finaliseCharacter } from '@/services/character/characterService'
 import { ATMOSPHERE_PRESETS, DANGER_LEVELS } from '@/lib/world/dmPrompts'
 import { ANCESTRIES, BACKGROUNDS, ABILITIES } from '@/lib/rules/rules'
@@ -29,6 +31,7 @@ export default function QuickStartFlow({ onCancel }) {
 
   const [phase, setPhase]       = useState('hint')   // hint | generating | preview | saving
   const [hint, setHint]         = useState('')
+  const [pendingDocs, setPendingDocs] = useState([])
   const [error, setError]       = useState(null)
   const [result, setResult]     = useState(null)     // { campaign, character }
   const [portrait, setPortrait] = useState(null)     // { portraitBase64, tokenBase64 }
@@ -97,6 +100,21 @@ export default function QuickStartFlow({ onCancel }) {
         createdAt: Date.now(),
       })
 
+      // Index any pending lore documents
+      const ragAvailable = useAppStore.getState().ragAvailable
+      for (const doc of pendingDocs) {
+        try {
+          const id = `res_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`
+          await resourcesDb.create({ id, campaignId: campaign.id, name: doc.name, type: doc.type, content: doc.content })
+          if (ragAvailable) {
+            const chunkCount = await indexResource({ campaignId: campaign.id, resourceId: id, resourceName: doc.name, content: doc.content })
+            await resourcesDb.setIndexed(id, chunkCount)
+          }
+        } catch (err) {
+          console.warn('[Resources] Failed to index lore doc (non-fatal):', err.message)
+        }
+      }
+
       // Finalise and save character
       const finalChar = finaliseCharacter({
         campaignId: campaign.id,
@@ -153,6 +171,14 @@ export default function QuickStartFlow({ onCancel }) {
               <p className="text-xs text-parchment-500 font-body mt-1.5">
                 Any theme, character archetype, or tone you have in mind.
               </p>
+            </div>
+
+            <div>
+              <label className="label">Source Lore <span className="text-parchment-500 text-xs font-body normal-case">(optional)</span></label>
+              <p className="font-body text-xs text-parchment-500 mb-2">
+                Upload lore documents or setting guides — the DM will treat them as canonical source material.
+              </p>
+              <LoreDocumentsPicker docs={pendingDocs} onChange={setPendingDocs} />
             </div>
 
             {error && (

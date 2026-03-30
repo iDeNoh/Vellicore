@@ -1,11 +1,13 @@
 import React, { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { campaigns as campaignDb, characters as characterDb, sessions as sessionDb, worldState as worldStateDb } from '@/services/db/database'
+import { campaigns as campaignDb, characters as characterDb, sessions as sessionDb, worldState as worldStateDb, resources as resourcesDb } from '@/services/db/database'
+import { indexResource, removeResourceChunks } from '@/services/resources/resourceService'
 import { useAppStore } from '@/store/appStore'
 import { deleteCollections } from '@/services/rag/ragService'
 import { ATMOSPHERE_PRESETS, CAMPAIGN_TYPE_GROUPS, STORY_STYLES } from '@/lib/world/dmPrompts'
 import { ANCESTRIES, BACKGROUNDS } from '@/lib/rules/rules'
 import QuickStartFlow from '@/components/ui/QuickStartFlow'
+import LoreDocumentsPicker from '@/components/ui/LoreDocumentsPicker'
 import { useIsMobile } from '@/hooks/useIsMobile'
 import clsx from 'clsx'
 
@@ -335,6 +337,9 @@ function CampaignDetail({ campaign, onPlay, onAddCharacter, onNewFrom, onDelete 
         </div>
       )}
 
+      {/* Lore documents */}
+      <LoreDocumentsSection campaignId={campaign.id} />
+
       {/* Danger zone */}
       <div className="flex items-center justify-between">
         <button onClick={() => onNewFrom({
@@ -414,7 +419,9 @@ function NewCampaignForm({ onCreated, onCancel, initialValues, sourceId }) {
   const [customThemes, setCustomThemes] = useState(initialValues?.customThemes || '')
   const [danger, setDanger] = useState(initialValues?.danger || 'moderate')
   const [storyStyle, setStoryStyle] = useState(initialValues?.storyStyle || ['guided_fate'])
+  const [pendingDocs, setPendingDocs] = useState([])
   const [saving, setSaving] = useState(false)
+  const ragAvailable = useAppStore(s => s.ragAvailable)
 
   function toggleStyle(id) {
     setStoryStyle(prev => {
@@ -450,6 +457,20 @@ function NewCampaignForm({ onCreated, onCancel, initialValues, sourceId }) {
         charsCopied = sourceChars.length
       } catch (err) {
         console.warn('Failed to copy characters:', err)
+      }
+    }
+
+    // Index any pending lore documents
+    for (const doc of pendingDocs) {
+      try {
+        const id = `res_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`
+        await resourcesDb.create({ id, campaignId: campaign.id, name: doc.name, type: doc.type, content: doc.content })
+        if (ragAvailable) {
+          const chunkCount = await indexResource({ campaignId: campaign.id, resourceId: id, resourceName: doc.name, content: doc.content })
+          await resourcesDb.setIndexed(id, chunkCount)
+        }
+      } catch (err) {
+        console.warn('[Resources] Failed to index lore doc (non-fatal):', err.message)
       }
     }
 
@@ -567,6 +588,14 @@ function NewCampaignForm({ onCreated, onCancel, initialValues, sourceId }) {
           </div>
         </div>
 
+        <div>
+          <label className="label">Source Lore <span className="text-parchment-500 text-xs font-body normal-case">(optional)</span></label>
+          <p className="font-body text-xs text-parchment-500 mb-2">
+            Upload lore documents, adventure modules, or setting guides — the DM will treat them as canonical source material when generating the world.
+          </p>
+          <LoreDocumentsPicker docs={pendingDocs} onChange={setPendingDocs} />
+        </div>
+
         <div className="flex justify-end gap-3 pt-2">
           <button className="btn-ghost" onClick={onCancel}>Cancel</button>
           <button className="btn-primary" onClick={create} disabled={!name.trim() || saving}>
@@ -604,6 +633,193 @@ function CharacterRow({ char }) {
           <div className={clsx('h-full rounded-full', hpPct > 60 ? 'bg-forest-500' : hpPct > 30 ? 'bg-gold-500' : 'bg-crimson-500')}
             style={{ width: `${hpPct}%` }} />
         </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Lore documents section (shown in campaign detail before world gen) ─────────
+
+const RESOURCE_TYPES = [
+  { value: 'lore',      label: 'Lore / Setting' },
+  { value: 'adventure', label: 'Adventure / Module' },
+  { value: 'rulebook',  label: 'Rulebook' },
+  { value: 'character', label: 'Character Stories' },
+  { value: 'text',      label: 'Other' },
+]
+
+function LoreDocumentsSection({ campaignId }) {
+  const [resources, setResources] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [showAdd, setShowAdd] = useState(false)
+  const ragAvailable = useAppStore(s => s.ragAvailable)
+
+  useEffect(() => {
+    if (!campaignId) return
+    resourcesDb.byCampaign(campaignId)
+      .then(list => { setResources(list || []); setLoading(false) })
+      .catch(() => setLoading(false))
+  }, [campaignId])
+
+  async function handleDelete(res, e) {
+    e.stopPropagation()
+    if (!confirm(`Delete "${res.name}"?`)) return
+    await removeResourceChunks({ campaignId, resourceId: res.id, chunkCount: res.chunk_count })
+    await resourcesDb.delete(res.id)
+    setResources(r => r.filter(x => x.id !== res.id))
+  }
+
+  async function handleAdded(res) {
+    setResources(r => [res, ...r])
+    setShowAdd(false)
+  }
+
+  return (
+    <div className="panel mb-5">
+      <div className="panel-header justify-between">
+        <div>
+          <span className="font-ui text-xs text-parchment-400 uppercase tracking-wider">Source Lore</span>
+          {ragAvailable && resources.length > 0 && (
+            <span className="ml-2 text-xs text-forest-400 font-ui">{resources.filter(r => r.indexed).length}/{resources.length} indexed</span>
+          )}
+        </div>
+        <button onClick={() => setShowAdd(s => !s)} className="text-xs text-gold-400 hover:text-gold-300 font-ui">
+          {showAdd ? '✕ Cancel' : '+ Add'}
+        </button>
+      </div>
+
+      <div className="p-4 space-y-3">
+        {!ragAvailable && (
+          <p className="text-xs text-gold-400 font-ui">
+            ChromaDB offline — documents will be saved but not used for generation until ChromaDB is available.
+          </p>
+        )}
+
+        {showAdd && (
+          <LoreAddForm campaignId={campaignId} onAdded={handleAdded} onCancel={() => setShowAdd(false)} />
+        )}
+
+        {loading && <p className="text-xs text-parchment-500 font-ui">Loading…</p>}
+
+        {!loading && resources.length === 0 && !showAdd && (
+          <div className="text-center py-3">
+            <p className="font-body text-sm text-parchment-400">No source documents yet</p>
+            <p className="font-body text-xs text-parchment-500 mt-1">
+              Upload lore, adventure modules, or stories and the DM will treat them as canonical source material when generating the world.
+            </p>
+          </div>
+        )}
+
+        {resources.map(res => {
+          const typeLabel = RESOURCE_TYPES.find(t => t.value === res.type)?.label || res.type
+          return (
+            <div key={res.id} className="flex items-center gap-2 py-1 border-b border-ink-800 last:border-0">
+              <div className="flex-1 min-w-0">
+                <p className="font-ui text-xs text-parchment-200 truncate">{res.name}</p>
+                <p className="font-body text-xs text-parchment-500">{typeLabel} · {res.chunk_count > 0 ? `${res.chunk_count} chunks` : 'unindexed'}</p>
+              </div>
+              {res.indexed
+                ? <span className="text-xs px-1.5 py-0.5 rounded font-ui text-forest-300 bg-forest-600/20 shrink-0">indexed</span>
+                : <span className="text-xs px-1.5 py-0.5 rounded font-ui text-gold-300 bg-gold-500/20 shrink-0">pending</span>
+              }
+              <button onClick={e => handleDelete(res, e)} className="text-xs text-crimson-400 hover:text-crimson-300 shrink-0">✕</button>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+function LoreAddForm({ campaignId, onAdded, onCancel }) {
+  const [name, setName] = useState('')
+  const [type, setType] = useState('lore')
+  const [content, setContent] = useState('')
+  const [indexing, setIndexing] = useState(false)
+  const [error, setError] = useState('')
+  const ragAvailable = useAppStore(s => s.ragAvailable)
+
+  async function handleFileUpload(e) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const baseName = file.name.replace(/\.[^.]+$/, '')
+    if (!name) setName(baseName)
+
+    if (file.name.toLowerCase().endsWith('.pdf')) {
+      setError('')
+      setIndexing(true)
+      try {
+        const buffer = await file.arrayBuffer()
+        const result = await window.tavern.fs.parsePdf(buffer)
+        if (!result.ok) throw new Error(result.error || 'PDF extraction failed')
+        setContent(result.text)
+      } catch (err) {
+        setError(`PDF error: ${err.message}`)
+      } finally {
+        setIndexing(false)
+      }
+    } else {
+      const text = await file.text()
+      setContent(text)
+    }
+  }
+
+  async function handleSubmit() {
+    if (!name.trim()) { setError('Name is required.'); return }
+    if (!content.trim()) { setError('Content is required.'); return }
+    setError('')
+    setIndexing(true)
+    try {
+      const id = `res_${Date.now()}`
+      const saved = await resourcesDb.create({ id, campaignId, name: name.trim(), type, content: content.trim() })
+      let chunkCount = 0
+      if (ragAvailable) {
+        try {
+          chunkCount = await indexResource({ campaignId, resourceId: id, resourceName: name.trim(), content: content.trim() })
+          await resourcesDb.setIndexed(id, chunkCount)
+        } catch (err) {
+          console.warn('[Resources] Indexing failed (non-fatal):', err.message)
+        }
+      }
+      onAdded({ ...saved, id, chunk_count: chunkCount, indexed: ragAvailable ? 1 : 0, created_at: Date.now() })
+    } catch (err) {
+      setError('Failed to save: ' + err.message)
+      setIndexing(false)
+    }
+  }
+
+  return (
+    <div className="bg-ink-700 rounded border border-ink-600 p-3 space-y-3">
+      <div>
+        <label className="label">Name</label>
+        <input className="input text-sm" value={name} onChange={e => setName(e.target.value)}
+          placeholder="e.g. World Lore, Adventure Module…" />
+      </div>
+      <div>
+        <label className="label">Type</label>
+        <select className="input text-sm" value={type} onChange={e => setType(e.target.value)}>
+          {RESOURCE_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+        </select>
+      </div>
+      <div>
+        <div className="flex items-center justify-between mb-1">
+          <label className="label mb-0">Content</label>
+          <label className="text-xs text-parchment-500 hover:text-parchment-300 cursor-pointer font-ui">
+            Upload file (.txt, .md, .pdf)
+            <input type="file" accept=".txt,.md,.pdf" className="hidden" onChange={handleFileUpload} />
+          </label>
+        </div>
+        <textarea className="input text-sm font-mono h-28 resize-none" value={content}
+          onChange={e => setContent(e.target.value)}
+          placeholder="Paste lore text here, or upload a file above…" />
+        {content && <p className="text-xs text-parchment-500 mt-1 font-ui">{content.length.toLocaleString()} characters</p>}
+      </div>
+      {error && <p className="text-xs text-crimson-400 font-ui">{error}</p>}
+      <div className="flex gap-2">
+        <button className="btn-ghost text-sm flex-1" onClick={onCancel} disabled={indexing}>Cancel</button>
+        <button className="btn-primary text-sm flex-1" onClick={handleSubmit} disabled={indexing}>
+          {indexing ? 'Indexing…' : 'Add Document'}
+        </button>
       </div>
     </div>
   )

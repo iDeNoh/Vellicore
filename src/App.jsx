@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { useAppStore } from '@/store/appStore'
 import { initDatabase } from '@/services/db/database'
-import { fetchChatterboxVoices, checkKokoro } from '@/services/tts/ttsService'
+import { setChatterboxVoicesCache, checkChatterbox, checkKokoro } from '@/services/tts/ttsService'
 import { checkRagHealth } from '@/services/rag/ragService'
 import { remoteTavern, probeApiServer } from '@/lib/remoteTavern'
 
@@ -42,12 +42,16 @@ function defaultConfig() {
       enabled: false,
       kokoroUrl: 'http://localhost:8880',
       dmVoice: 'af_sky',
+      playerVoice: '',
+      chatterboxPlayerVoice: '',
       speed: 1.0,
     },
     app: {
       autoImage: false,
       autoTts: false,
       mapGridVisible: true,
+      adultContent: false,
+      goreLevel: 'moderate',  // 'none' | 'moderate' | 'explicit'
     },
     rag: {
       enabled: true,
@@ -82,8 +86,12 @@ async function autoConnectLocalServices(cfg) {
     if (provider === 'chatterbox') {
       const url = tts.chatterboxUrl || 'http://localhost:8004'
       try {
-        const voices = await fetchChatterboxVoices(url)
-        if (voices.length > 0) console.info(`[AutoConnect] Chatterbox: loaded ${voices.length} voices from ${url}`)
+        // checkChatterbox proxies through window.tavern so it works on mobile too
+        const r = await checkChatterbox(url)
+        if (r.ok && r.voices?.length > 0) {
+          setChatterboxVoicesCache(r.voices)
+          console.info(`[AutoConnect] Chatterbox: loaded ${r.voices.length} voices from ${url}`)
+        }
       } catch {
         // silent
       }

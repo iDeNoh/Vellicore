@@ -4,6 +4,7 @@ import { useTts } from '@/hooks/useTts'
 import {
   KOKORO_VOICES, getNpcVoice, setNpcVoice,
   getChatterboxVoices, getNpcVoiceChatterbox, chatterboxVoiceLabel, stopSpeaking,
+  getPlayerVoice,
 } from '@/services/tts/ttsService'
 import clsx from 'clsx'
 
@@ -20,17 +21,21 @@ export default function TtsControls({ onClose }) {
   const provider = config?.tts?.provider || 'kokoro'
   const isChatterbox = provider === 'chatterbox'
 
-  const [local, setLocal] = useState({
-    speed:    config?.tts?.speed || 1.0,
-    dmVoice:  isChatterbox
-                ? (config?.tts?.chatterboxDmVoice || '')
-                : (config?.tts?.dmVoice || 'bm_george'),
-    autoTts:  config?.app?.autoTts ?? true,
-  })
   const [saved, setSaved] = useState(false)
 
   const npcs = Object.values(world.npcs || {})
   const chatterboxVoices = getChatterboxVoices()
+
+  const [local, setLocal] = useState({
+    speed:        config?.tts?.speed || 1.0,
+    dmVoice:      isChatterbox
+                    ? (config?.tts?.chatterboxDmVoice || '')
+                    : (config?.tts?.dmVoice || 'bm_george'),
+    playerVoice:  isChatterbox
+                    ? (config?.tts?.chatterboxPlayerVoice || '')
+                    : (config?.tts?.playerVoice || ''),
+    autoTts:      config?.app?.autoTts ?? true,
+  })
 
   function update(key, val) {
     setLocal(l => ({ ...l, [key]: val }))
@@ -38,8 +43,8 @@ export default function TtsControls({ onClose }) {
 
   async function save() {
     const ttsPatch = isChatterbox
-      ? { speed: local.speed, chatterboxDmVoice: local.dmVoice }
-      : { speed: local.speed, dmVoice: local.dmVoice }
+      ? { speed: local.speed, chatterboxDmVoice: local.dmVoice, chatterboxPlayerVoice: local.playerVoice }
+      : { speed: local.speed, dmVoice: local.dmVoice, playerVoice: local.playerVoice }
     await saveConfig({
       tts: { ...config.tts, ...ttsPatch },
       app: { ...config.app, autoTts: local.autoTts },
@@ -126,6 +131,28 @@ export default function TtsControls({ onClose }) {
             )}
           </div>
 
+          {/* Player character voice */}
+          <div>
+            <label className="label">Player character voice</label>
+            <p className="font-body text-xs text-parchment-400 mb-2">
+              Used when auto-narrate speaks your actions. Leave unset to auto-pick based on your character.
+            </p>
+            {isChatterbox ? (
+              <ChatterboxVoicePicker
+                voices={chatterboxVoices}
+                selected={local.playerVoice}
+                onSelect={v => update('playerVoice', v)}
+                allowAuto
+              />
+            ) : (
+              <PlayerVoiceGrid
+                selected={local.playerVoice}
+                onSelect={v => update('playerVoice', v)}
+                dmVoice={local.dmVoice}
+              />
+            )}
+          </div>
+
           {/* NPC voice assignments */}
           {npcs.length > 0 && (
             <div>
@@ -177,6 +204,59 @@ export default function TtsControls({ onClose }) {
   )
 }
 
+// ── Player voice grid (Kokoro) — same as VoiceGrid but with an Auto option ─────
+
+function PlayerVoiceGrid({ selected, onSelect, dmVoice }) {
+  const groups = {
+    'British':  Object.entries(KOKORO_VOICES).filter(([, v]) => v.accent === 'british'),
+    'American': Object.entries(KOKORO_VOICES).filter(([, v]) => v.accent === 'american'),
+  }
+
+  return (
+    <div className="space-y-2">
+      {/* Auto option */}
+      <button onClick={() => onSelect('')}
+        className={clsx('w-full text-left px-3 py-2 rounded border text-xs transition-all',
+          !selected
+            ? 'border-gold-500/60 bg-ink-700 shadow-glow-gold'
+            : 'border-ink-600 bg-ink-800 hover:border-ink-500'
+        )}>
+        <span className={clsx('font-ui font-medium', !selected ? 'text-gold-300' : 'text-parchment-200')}>
+          Auto
+        </span>
+        <p className="font-body text-parchment-400 mt-0.5 text-xs">
+          Pick based on character gender, distinct from DM voice
+        </p>
+      </button>
+      {Object.entries(groups).map(([accent, voices]) => (
+        <div key={accent}>
+          <p className="text-xs text-parchment-500 font-ui mb-1">{accent}</p>
+          <div className="grid grid-cols-2 gap-1.5">
+            {voices.map(([id, voice]) => (
+              <button key={id} onClick={() => onSelect(id)}
+                className={clsx('text-left px-3 py-2 rounded border text-xs transition-all',
+                  selected === id
+                    ? 'border-gold-500/60 bg-ink-700 shadow-glow-gold'
+                    : 'border-ink-600 bg-ink-800 hover:border-ink-500',
+                  id === dmVoice && 'opacity-40'
+                )}
+                title={id === dmVoice ? 'Same as DM voice' : undefined}>
+                <span className={clsx('font-ui font-medium', selected === id ? 'text-gold-300' : 'text-parchment-200')}>
+                  {voice.label}
+                </span>
+                <span className="ml-1 text-parchment-500">
+                  {voice.gender === 'f' ? '♀' : '♂'}
+                </span>
+                <p className="font-body text-parchment-400 mt-0.5 text-xs">{voice.description}</p>
+              </button>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 // ── Kokoro voice grid ──────────────────────────────────────────────────────────
 
 function VoiceGrid({ selected, onSelect }) {
@@ -216,7 +296,7 @@ function VoiceGrid({ selected, onSelect }) {
 
 // ── Chatterbox voice picker ────────────────────────────────────────────────────
 
-function ChatterboxVoicePicker({ voices, selected, onSelect }) {
+function ChatterboxVoicePicker({ voices, selected, onSelect, allowAuto = false }) {
   if (!voices.length) {
     return (
       <p className="text-xs text-parchment-500 font-body py-2">
@@ -226,6 +306,18 @@ function ChatterboxVoicePicker({ voices, selected, onSelect }) {
   }
   return (
     <div className="grid grid-cols-2 gap-1.5">
+      {allowAuto && (
+        <button onClick={() => onSelect('')}
+          className={clsx('text-left px-3 py-2 rounded border text-xs transition-all col-span-2',
+            !selected
+              ? 'border-gold-500/60 bg-ink-700 shadow-glow-gold'
+              : 'border-ink-600 bg-ink-800 hover:border-ink-500'
+          )}>
+          <span className={clsx('font-ui font-medium', !selected ? 'text-gold-300' : 'text-parchment-200')}>
+            Auto — pick based on character gender
+          </span>
+        </button>
+      )}
       {voices.map(v => {
         const id    = typeof v === 'string' ? v : (v.filename || v.display_name || '')
         const label = chatterboxVoiceLabel(v)

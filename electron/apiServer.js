@@ -129,12 +129,12 @@ module.exports = function startApiServer({ db, log, fetch: nodeFetch }) {
   // ── World state ──────────────────────────────────────────────────────────────
 
   app.get('/api/campaigns/:id/world', wrap((req, res) => {
-    ok(res, { data: db.world.get(req.params.id) })
+    ok(res, { data: db.worldState.get(req.params.id) })
   }))
 
   app.post('/api/campaigns/:id/world', wrap((req, res) => {
     const { world, story } = req.body
-    ok(res, { data: db.world.set(req.params.id, world, story) })
+    ok(res, { data: db.worldState.set(req.params.id, world, story) })
   }))
 
   // ── NPCs ─────────────────────────────────────────────────────────────────────
@@ -170,12 +170,12 @@ module.exports = function startApiServer({ db, log, fetch: nodeFetch }) {
   }))
 
   // ── LLM proxy ────────────────────────────────────────────────────────────────
-  // Buffers the full LLM response (no streaming on phone — but correct & complete).
-  // Returns { ok, chunks } so the frontend replayChunks path handles it.
+  // Proxies LLM calls through the main process to avoid CORS on the phone.
+  // - SSE / streaming responses  → returns { ok, chunks } for replayChunks
+  // - JSON / non-streaming       → returns { ok, data } for direct data path
 
   app.post('/api/llm', wrap(async (req, res) => {
     const { url, headers, body } = req.body
-    const chunks = []
 
     const response = await nodeFetch(url, {
       method: 'POST',
@@ -189,16 +189,24 @@ module.exports = function startApiServer({ db, log, fetch: nodeFetch }) {
       return err(res, `LLM ${response.status}: ${text.slice(0, 300)}`, response.status)
     }
 
-    // Stream body into chunks array
-    const reader = response.body.getReader()
-    const decoder = new TextDecoder()
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
-      chunks.push(decoder.decode(value))
+    const contentType = response.headers.get('content-type') || ''
+
+    if (contentType.includes('text/event-stream')) {
+      // Streaming SSE — buffer all chunks and return for replayChunks
+      const chunks = []
+      const reader = response.body.getReader()
+      const decoder = new TextDecoder()
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        chunks.push(decoder.decode(value))
+      }
+      return ok(res, { chunks })
     }
 
-    ok(res, { chunks })
+    // Non-streaming JSON response — parse and return as data
+    const data = await response.json()
+    ok(res, { data })
   }))
 
   // ── TTS proxy ────────────────────────────────────────────────────────────────
@@ -225,31 +233,95 @@ module.exports = function startApiServer({ db, log, fetch: nodeFetch }) {
 
   // ── RAG proxy ────────────────────────────────────────────────────────────────
 
+  const CHROMA_BASE = 'http://localhost:8765'
+  const EMBED_BASE  = 'http://127.0.0.1:8766'
+
   app.post('/api/rag/request', wrap(async (req, res) => {
-    const { url, method = 'GET', body } = req.body
-    const response = await nodeFetch(url, {
+    const { method = 'GET', path: ragPath, body } = req.body
+    const response = await nodeFetch(`${CHROMA_BASE}${ragPath}`, {
       method,
       headers: { 'Content-Type': 'application/json' },
       body: body ? JSON.stringify(body) : undefined,
-      signal: AbortSignal.timeout(30_000),
+      signal: AbortSignal.timeout(10_000),
     })
+    if (!response.ok) {
+      const errText = await response.text().catch(() => response.statusText)
+      return ok(res, { ok: false, status: response.status, error: errText.slice(0, 300) })
+    }
     const data = await response.json().catch(() => ({}))
-    ok(res, { status: response.status, data })
+    ok(res, { ok: true, status: response.status, data })
   }))
 
   app.post('/api/rag/embed', wrap(async (req, res) => {
-    const { url, body } = req.body
-    const response = await nodeFetch(url, {
+    const { texts } = req.body
+    const response = await nodeFetch(`${EMBED_BASE}/embed`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
+      body: JSON.stringify({ texts }),
       signal: AbortSignal.timeout(30_000),
     })
+    if (!response.ok) {
+      const errText = await response.text().catch(() => response.statusText)
+      return ok(res, { ok: false, error: errText.slice(0, 200) })
+    }
     const data = await response.json().catch(() => ({}))
-    ok(res, { status: response.status, data })
+    ok(res, { ok: true, data })
   }))
 
-  // ── Health check ─────────────────────────────────────────────────────────────
+  // ── Health checks ────────────────────────────────────────────────────────────
+
+  app.post('/api/health', wrap(async (req, res) => {
+    const { type, url } = req.body
+    const base = (url || '').replace(/\/$/, '')
+    try {
+      if (type === 'ollama') {
+        const r = await nodeFetch(`${base}/api/tags`, { signal: AbortSignal.timeout(3000) })
+        const data = await r.json().catch(() => ({}))
+        return ok(res, { ok: r.ok, models: data.models?.map(m => m.name) || [] })
+      }
+      if (type === 'sdnext') {
+        const r = await nodeFetch(`${base}/sdapi/v1/sd-models`, { signal: AbortSignal.timeout(3000) })
+        const data = await r.json().catch(() => [])
+        return ok(res, { ok: r.ok, models: Array.isArray(data) ? data.map(m => m.model_name) : [] })
+      }
+      if (type === 'kokoro') {
+        const r = await nodeFetch(`${base}/health`, { signal: AbortSignal.timeout(3000) })
+        return ok(res, { ok: r.ok })
+      }
+      if (type === 'chatterbox') {
+        const [statusRes, voicesRes] = await Promise.all([
+          nodeFetch(`${base}/api/ui/initial-data`, { signal: AbortSignal.timeout(4000) }),
+          nodeFetch(`${base}/get_predefined_voices`,  { signal: AbortSignal.timeout(4000) }),
+        ])
+        if (!statusRes.ok) return ok(res, { ok: false, error: `HTTP ${statusRes.status}` })
+        const data = await voicesRes.json().catch(() => null)
+        const voices = Array.isArray(data) ? data : (data?.voices || [])
+        return ok(res, { ok: true, voices })
+      }
+      if (type === 'lmstudio') {
+        const r = await nodeFetch(`${base}/v1/models`, { signal: AbortSignal.timeout(4000) })
+        const data = await r.json().catch(() => ({}))
+        return ok(res, { ok: r.ok, models: (data.data || []).map(m => m.id) })
+      }
+      err(res, `Unknown health check type: ${type}`, 400)
+    } catch (e) {
+      ok(res, { ok: false, error: e.message })
+    }
+  }))
+
+  // ── PDF parsing ───────────────────────────────────────────────────────────────
+
+  app.post('/api/fs/parse-pdf', wrap(async (req, res) => {
+    const { PDFParse } = require('pdf-parse')
+    const { data: base64 } = req.body
+    if (!base64) return err(res, 'Missing data', 400)
+    const buffer = Buffer.from(base64, 'base64')
+    const parser = new PDFParse({ data: buffer })
+    const result = await parser.getText()
+    const info   = await parser.getInfo()
+    await parser.destroy()
+    ok(res, { text: result.text, pages: info.total })
+  }))
 
   app.get('/api/ping', (req, res) => res.json({ ok: true, version: '1' }))
 

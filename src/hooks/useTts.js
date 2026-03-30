@@ -12,6 +12,7 @@ import { useCallback, useEffect, useRef } from 'react'
 import { useGameStore, useAppStore } from '@/store/appStore'
 import {
   speakDmResponse,
+  speakPlayerText,
   stopSpeaking,
   isSpeaking,
   onSpeakingStateChange,
@@ -24,7 +25,7 @@ import {
 
 export function useTts() {
   const config = useAppStore(s => s.config)
-  const { world, setSpeaking } = useGameStore()
+  const { world, setSpeaking, characters } = useGameStore()
 
   const isEnabled = config?.tts?.enabled
   const isAuto = config?.app?.autoTts
@@ -49,6 +50,20 @@ export function useTts() {
       onEnd: () => setSpeaking(false),
     })
   }, [config, world.npcs, isEnabled])
+
+  // ── Speak a player message ─────────────────────────────────────────────────
+
+  const speakPlayer = useCallback(async (text) => {
+    if (!isEnabled || !isAuto || !text?.trim()) return
+    const character = Object.values(characters || {})[0] || null
+    await speakPlayerText({
+      text,
+      config,
+      character,
+      onStart: () => setSpeaking(true),
+      onEnd:   () => setSpeaking(false),
+    })
+  }, [config, characters, isEnabled, isAuto])
 
   // ── Stop ───────────────────────────────────────────────────────────────────
 
@@ -77,6 +92,7 @@ export function useTts() {
     isEnabled,
     isAuto,
     speak,
+    speakPlayer,
     stop,
     getVoiceForNpc,
     assignVoice,

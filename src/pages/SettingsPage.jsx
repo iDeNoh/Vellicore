@@ -8,9 +8,9 @@ import { STORY_STYLES } from '@/lib/world/dmPrompts'
 import ServicePanel from '@/components/ui/ServicePanel'
 import clsx from 'clsx'
 
-const isElectron = typeof window !== 'undefined' && !!window.tavern
-
 export default function SettingsPage() {
+  // Evaluated at render time so it's true on mobile after remoteTavern is wired up
+  const isElectron = !!window.tavern
   const navigate = useNavigate()
   const { config, saveConfig, activeCampaignId } = useAppStore()
   const [local, setLocal] = useState(null)
@@ -293,6 +293,15 @@ export default function SettingsPage() {
                           ))}
                         </select>
                       </Field>
+                      <Field label="Player Voice">
+                        <select className="input" value={local.tts.playerVoice || ''}
+                          onChange={e => update('tts.playerVoice', e.target.value)}>
+                          <option value="">Auto (based on character gender)</option>
+                          {Object.entries(KOKORO_VOICES).map(([id, v]) => (
+                            <option key={id} value={id}>{v.label} — {v.description}</option>
+                          ))}
+                        </select>
+                      </Field>
                     </>
                   )}
 
@@ -344,6 +353,23 @@ export default function SettingsPage() {
                             onChange={e => update('tts.chatterboxDmVoice', e.target.value)} />
                         )}
                       </Field>
+                      <Field label="Player Voice">
+                        {chatterboxVoices.length > 0 ? (
+                          <select className="input" value={local.tts.chatterboxPlayerVoice || ''}
+                            onChange={e => update('tts.chatterboxPlayerVoice', e.target.value)}>
+                            <option value="">Auto (based on character gender)</option>
+                            {chatterboxVoices.map(v => {
+                              const id    = typeof v === 'string' ? v : (v.filename || v.display_name || '')
+                              const label = typeof v === 'string' ? v : (v.display_name || v.filename || '')
+                              return <option key={id} value={id}>{label}</option>
+                            })}
+                          </select>
+                        ) : (
+                          <input className="input" placeholder="Auto (test connection to load voices)"
+                            value={local.tts.chatterboxPlayerVoice || ''}
+                            onChange={e => update('tts.chatterboxPlayerVoice', e.target.value)} />
+                        )}
+                      </Field>
                       <Toggle label="Turbo model (faster, fewer options)"
                         checked={local.tts.chatterboxTurbo ?? true}
                         onChange={v => update('tts.chatterboxTurbo', v)} />
@@ -390,6 +416,47 @@ export default function SettingsPage() {
               <Toggle label="Show map grid"
                 checked={local.app.mapGridVisible}
                 onChange={v => update('app.mapGridVisible', v)} />
+            </div>
+          </Section>
+
+          {/* Content */}
+          <Section title="Content" icon="◈">
+            <div className="space-y-4">
+              <Toggle
+                label="Adult content"
+                description="Permits romantic and sexual content between consenting characters when dramatically appropriate."
+                checked={local.app?.adultContent ?? false}
+                onChange={v => update('app.adultContent', v)}
+              />
+              <Field label="Violence & gore">
+                <div className="flex gap-2">
+                  {[
+                    { value: 'none',     label: 'None',     desc: 'Abstract — outcomes only' },
+                    { value: 'moderate', label: 'Moderate', desc: 'Vivid but not gratuitous' },
+                    { value: 'explicit', label: 'Explicit', desc: 'Full visceral detail' },
+                  ].map(opt => (
+                    <button
+                      key={opt.value}
+                      onClick={() => update('app.goreLevel', opt.value)}
+                      title={opt.desc}
+                      className={clsx(
+                        'flex-1 py-2 px-3 rounded border font-ui text-sm transition-colors',
+                        (local.app?.goreLevel ?? 'moderate') === opt.value
+                          ? 'border-gold-500 bg-gold-500/10 text-gold-300'
+                          : 'border-ink-600 text-parchment-400 hover:border-ink-500'
+                      )}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-xs text-parchment-500 mt-1.5 font-ui">
+                  {(local.app?.goreLevel ?? 'moderate') === 'none' && 'Combat and injury stay abstract — no graphic descriptions.'}
+                  {(local.app?.goreLevel ?? 'moderate') === 'moderate' && 'Wounds and deaths can be described with some detail, but not dwelt upon.'}
+                  {(local.app?.goreLevel ?? 'moderate') === 'explicit' && 'Injuries, deaths, and violence may be described in full graphic detail.'}
+                </p>
+              </Field>
+              <p className="text-xs text-parchment-500 font-ui">These settings affect the AI DM and world generation. They are applied immediately.</p>
             </div>
           </Section>
 
@@ -535,12 +602,15 @@ function Field({ label, children }) {
   )
 }
 
-function Toggle({ label, checked, onChange }) {
+function Toggle({ label, description, checked, onChange }) {
   return (
-    <label className="flex items-center gap-3 cursor-pointer">
+    <label className="flex items-start gap-3 cursor-pointer">
       <input type="checkbox" checked={checked} onChange={e => onChange(e.target.checked)}
-        className="w-4 h-4 accent-gold-500" />
-      <span className="font-ui text-sm text-parchment-200">{label}</span>
+        className="w-4 h-4 accent-gold-500 mt-0.5 shrink-0" />
+      <div>
+        <span className="font-ui text-sm text-parchment-200">{label}</span>
+        {description && <p className="text-xs text-parchment-500 mt-0.5 font-ui">{description}</p>}
+      </div>
     </label>
   )
 }

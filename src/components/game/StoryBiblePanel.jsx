@@ -698,8 +698,6 @@ function ResourcesTab({ campaignId }) {
   const [showAdd, setShowAdd] = useState(false)
   const [expanded, setExpanded] = useState(null)
 
-  const isElectron = typeof window !== 'undefined' && !!window.tavern
-
   useEffect(() => {
     if (!campaignId) return
     resourcesDb.byCampaign(campaignId)
@@ -717,14 +715,6 @@ function ResourcesTab({ campaignId }) {
   async function handleAdded(newRes) {
     setResources(r => [newRes, ...r])
     setShowAdd(false)
-  }
-
-  if (!isElectron) {
-    return (
-      <div className="text-center py-8 px-4">
-        <p className="font-body text-parchment-400 text-sm">Resources require the Electron app.</p>
-      </div>
-    )
   }
 
   return (

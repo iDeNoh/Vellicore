@@ -11,11 +11,12 @@
 
 import { sendToLlm, buildContextPacket } from '@/services/llm/llmService'
 import { buildDmSystemPrompt } from '@/lib/world/dmPrompts'
-import { useGameStore } from '@/store/appStore'
+import { useGameStore, useAppStore } from '@/store/appStore'
 import { rollDice, RESULT_LABELS } from '@/lib/rules/rules'
 import { generateImage, buildDmTagPrompt, cropToToken } from '@/services/image/imageService'
 import { speakDmResponse, extractSpeakableText, stopSpeaking } from '@/services/tts/ttsService'
 import { generateWorld } from '@/lib/world/worldGenerator'
+import { retrieveContext, formatRetrievedContext } from '@/services/rag/ragService'
 import { parseStoryTags, applyStoryUpdates, createQuest, calculateTension } from '@/lib/story/storyEngine'
 
 // ── Think-token stream filter ─────────────────────────────────────────────────
@@ -119,9 +120,23 @@ export async function initialiseCampaign({ campaign, characters, config, onChunk
     tension: 1,
   }
 
-  const systemPrompt = buildDmSystemPrompt({ campaign, world, characters, story })
+  // Retrieve document lore for opening scene context
+  let openingRagContext = null
+  const ragStore = useAppStore.getState()
+  if (campaign.id && ragStore.ragAvailable && ragStore.config?.rag?.enabled !== false) {
+    try {
+      const openingQuery = `${campaign.name} opening scene ${world.name} ${world.tagline || ''}`
+      const ragResults = await retrieveContext(campaign.id, openingQuery, { maxResults: 5, threshold: 0.45 })
+      const docResults = ragResults.filter(r => r.type === 'resource')
+      if (docResults.length > 0) openingRagContext = formatRetrievedContext(docResults)
+    } catch { /* non-fatal */ }
+  }
+
+  const systemPrompt = buildDmSystemPrompt({ campaign, world, characters, story, config })
   const openingPrompt = buildOpeningPrompt(campaign, characters, world)
-  const openingMessages = [{ role: 'user', content: openingPrompt }]
+  const openingMessages = openingRagContext
+    ? [{ role: 'assistant', content: openingRagContext }, { role: 'user', content: openingPrompt }]
+    : [{ role: 'user', content: openingPrompt }]
 
   const logGroup = logOutbound(systemPrompt, openingMessages, 'Opening scene')
 
@@ -214,7 +229,7 @@ export async function playerTurn({
 }) {
   const { campaign, world, characters, story, messages } = gameState
 
-  const systemPrompt = buildDmSystemPrompt({ campaign, world, characters, story, sessionContext })
+  const systemPrompt = buildDmSystemPrompt({ campaign, world, characters, story, sessionContext, config })
 
   // Build conversation history (last 12 exchanges to manage token budget)
   const history = buildHistory(messages)
@@ -268,7 +283,7 @@ export async function resolveRolls({
   sessionContext,
 }) {
   const { campaign, world, characters, story, messages } = gameState
-  const systemPrompt = buildDmSystemPrompt({ campaign, world, characters, story, sessionContext })
+  const systemPrompt = buildDmSystemPrompt({ campaign, world, characters, story, sessionContext, config })
   const history = buildHistory(messages)
 
   // Format roll results as a system message

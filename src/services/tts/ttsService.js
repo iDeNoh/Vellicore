@@ -188,6 +188,76 @@ export function getNpcVoice(npc, dmVoice = DEFAULT_DM_VOICE) {
   return voice
 }
 
+/**
+ * Get the voice to use for a player character.
+ * Uses the config override if set; otherwise auto-selects based on pronouns,
+ * always picking a voice different from the DM voice.
+ */
+export function getPlayerVoice(character, dmVoice = DEFAULT_DM_VOICE, overrideVoice = '') {
+  if (overrideVoice && KOKORO_VOICES[overrideVoice]) return overrideVoice
+
+  const pronouns = (character?.pronouns || '').toLowerCase()
+  let basePool
+  if (pronouns.startsWith('she')) basePool = NPC_FEMALE_VOICES
+  else if (pronouns.startsWith('he')) basePool = NPC_MALE_VOICES
+  else basePool = NPC_VOICE_POOL
+
+  const pool = basePool.filter(v => v !== dmVoice)
+  const safePool = pool.length > 0 ? pool : NPC_VOICE_POOL.filter(v => v !== dmVoice)
+  const hash = (character?.name || 'player').split('').reduce((acc, c) => acc + c.charCodeAt(0), 0)
+  return safePool[hash % safePool.length]
+}
+
+/**
+ * Speak a player character's action/dialogue text.
+ * Uses the player voice setting (or auto-selects one).
+ */
+export async function speakPlayerText({ text, config, character, onStart, onEnd }) {
+  console.log('[TTS:player] speakPlayerText called', {
+    enabled: config.tts?.enabled,
+    autoTts: config.app?.autoTts,
+    provider: config.tts?.provider,
+    text: text?.slice(0, 60),
+    characterName: character?.name,
+    _providerDown,
+  })
+  if (!config.tts?.enabled) { console.log('[TTS:player] early return: tts disabled'); return }
+  if (!text?.trim()) { console.log('[TTS:player] early return: empty text'); return }
+
+  const provider = config.tts?.provider || 'kokoro'
+  const isChatterbox = provider === 'chatterbox'
+
+  let playerVoice
+  if (isChatterbox) {
+    const override = config.tts.chatterboxPlayerVoice || ''
+    if (override) {
+      playerVoice = override
+    } else {
+      const synthetic = { id: 'player', name: character?.name || 'player', gender: character?.pronouns?.startsWith('she') ? 'f' : character?.pronouns?.startsWith('he') ? 'm' : '' }
+      playerVoice = getNpcVoiceChatterbox(synthetic, config.tts.chatterboxDmVoice || '', _chatterboxVoices)
+    }
+    if (!playerVoice) { console.log('[TTS:player] early return: no chatterbox voice'); return }
+  } else {
+    playerVoice = getPlayerVoice(character, config.tts.dmVoice, config.tts.playerVoice)
+  }
+  console.log('[TTS:player] resolved voice:', playerVoice)
+
+  // Reuse speakDmResponse with player voice substituted as dmVoice, no NPC detection
+  return speakDmResponse({
+    text,
+    config: {
+      ...config,
+      tts: {
+        ...config.tts,
+        ...(isChatterbox ? { chatterboxDmVoice: playerVoice } : { dmVoice: playerVoice }),
+      },
+    },
+    npcs: {},
+    onStart,
+    onEnd,
+  })
+}
+
 export function setNpcVoice(npcId, voiceId) {
   npcVoiceMap[npcId] = voiceId
 }
@@ -441,9 +511,10 @@ export function onSpeakingStateChange(cb) {
  * @param {function} [opts.onSegment]  - Called with each segment as it starts
  */
 export async function speakDmResponse({ text, config, npcs = {}, onStart, onEnd, onSegment }) {
+  console.log('[TTS] speakDmResponse called', { enabled: config.tts?.enabled, _providerDown, textLen: text?.length })
   if (!config.tts?.enabled) return
   if (!text?.trim()) return
-  if (_providerDown) return
+  if (_providerDown) { console.warn('[TTS] circuit breaker is open — skipping. Re-test connection in Settings.'); return }
 
   // Cancel any in-progress speech
   stopSpeaking()

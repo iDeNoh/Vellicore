@@ -56,6 +56,32 @@ export async function ensureCollections(campaignId) {
   }
 }
 
+/**
+ * Reset only the game-generated collections (entities, events, sessions).
+ * Preserves the resources collection so user-uploaded lore survives world regeneration.
+ */
+export async function resetGameCollections(campaignId) {
+  const names = [
+    `${campaignId}_entities`,
+    `${campaignId}_events`,
+    `${campaignId}_sessions`,
+  ]
+  for (const name of names) {
+    await chromaRequest('DELETE', `/api/v1/collections/${name}`).catch(() => {})
+    collectionUuids.delete(name)
+  }
+  for (const name of names) {
+    const result = await chromaRequest('POST', '/api/v1/collections', {
+      name,
+      get_or_create: true,
+      metadata: { 'hnsw:space': 'cosine', campaign_id: campaignId },
+    })
+    if (result.ok && result.data?.id) {
+      collectionUuids.set(name, result.data.id)
+    }
+  }
+}
+
 export async function deleteCollections(campaignId) {
   const names = [
     `${campaignId}_entities`,

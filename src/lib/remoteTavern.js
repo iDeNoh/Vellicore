@@ -14,9 +14,18 @@ function apiBase() {
   return `http://${window.location.hostname}:${API_PORT}`
 }
 
+async function parseJsonSafe(res) {
+  const ct = res.headers.get('content-type') || ''
+  if (!ct.includes('application/json')) {
+    const text = await res.text()
+    throw new Error(`Server returned non-JSON (${res.status}): ${text.slice(0, 120)}`)
+  }
+  return res.json()
+}
+
 async function get(path) {
   const res = await fetch(`${apiBase()}${path}`)
-  return res.json()
+  return parseJsonSafe(res)
 }
 
 async function post(path, body) {
@@ -25,7 +34,7 @@ async function post(path, body) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })
-  return res.json()
+  return parseJsonSafe(res)
 }
 
 async function patch(path, body) {
@@ -34,12 +43,12 @@ async function patch(path, body) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })
-  return res.json()
+  return parseJsonSafe(res)
 }
 
 async function del(path) {
   const res = await fetch(`${apiBase()}${path}`, { method: 'DELETE' })
-  return res.json()
+  return parseJsonSafe(res)
 }
 
 // ── remoteTavern object — mirrors window.tavern exactly ──────────────────────
@@ -107,15 +116,22 @@ export const remoteTavern = {
     saveAsset:    async ()    => null,
     readAsset:    async ()    => null,
     openExternal: async (url) => window.open(url, '_blank'),
-    parsePdf:     async ()    => ({ ok: false, error: 'PDF parsing not supported on mobile' }),
+    parsePdf:     async (buffer) => {
+      // Convert ArrayBuffer → base64 for JSON transport to companion server
+      const bytes = new Uint8Array(buffer)
+      let binary = ''
+      for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i])
+      const base64 = btoa(binary)
+      return post('/api/fs/parse-pdf', { data: base64 })
+    },
   },
 
   health: {
-    checkOllama:     async (url) => { try { const r = await get(`/api/ping`); return !!r.ok } catch { return false } },
-    checkSdnext:     async ()    => false,
-    checkKokoro:     async ()    => false,
-    checkLmStudio:   async ()    => false,
-    checkChatterbox: async ()    => false,
+    checkOllama:     async (url) => { const r = await post('/api/health', { type: 'ollama',      url }); return r },
+    checkSdnext:     async (url) => { const r = await post('/api/health', { type: 'sdnext',     url }); return r },
+    checkKokoro:     async (url) => { const r = await post('/api/health', { type: 'kokoro',     url }); return r },
+    checkLmStudio:   async (url) => { const r = await post('/api/health', { type: 'lmstudio',   url }); return r },
+    checkChatterbox: async (url) => { const r = await post('/api/health', { type: 'chatterbox', url }); return r },
   },
 
   dialog: {
@@ -146,12 +162,12 @@ export const remoteTavern = {
   },
 
   rag: {
-    request: async (opts) => {
-      const r = await post('/api/rag/request', opts)
+    request: async ({ method, path, body }) => {
+      const r = await post('/api/rag/request', { method, path, body })
       return r
     },
-    embed: async (opts) => {
-      const r = await post('/api/rag/embed', opts)
+    embed: async ({ texts }) => {
+      const r = await post('/api/rag/embed', { texts })
       return r
     },
   },

@@ -20,7 +20,7 @@ import {
   speakDmMessage,
   summariseForMemory,
 } from '@/lib/world/dmEngine'
-import { stopSpeaking } from '@/services/tts/ttsService'
+import { stopSpeaking, speakPlayerText } from '@/services/tts/ttsService'
 import { parseStoryTags, applyStoryUpdates, createQuest } from '@/lib/story/storyEngine'
 import { useSessionMemory } from '@/hooks/useSessionMemory'
 import {
@@ -42,6 +42,8 @@ export function useDm() {
 
   // Track the streaming message id so we can update it in place
   const streamingIdRef = useRef(null)
+  // Track in-progress player TTS so DM narration waits for it to finish
+  const playerTtsRef = useRef(null)
 
   // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -219,6 +221,13 @@ export function useDm() {
     // Stop any current TTS before processing new input
     stopSpeaking()
 
+    // Speak player action if auto-TTS is on; store the promise so DM narration can wait for it
+    playerTtsRef.current = null
+    if (config?.tts?.enabled && config?.app?.autoTts) {
+      const character = Object.values(characters || {})[0] || null
+      playerTtsRef.current = speakPlayerText({ text: input.trim(), config, character })
+    }
+
     // Add player message
     addMessage({ role: 'user', content: input.trim() })
 
@@ -272,8 +281,14 @@ export function useDm() {
           })
 
           if (p.speakableText) {
-            setSpeaking(true)
-            speakDmMessage({ text: p.speakableText, config, npcs: useGameStore.getState().world?.npcs || {}, onEnd: () => setSpeaking(false) })
+            const startDmTts = () => {
+              setSpeaking(true)
+              speakDmMessage({ text: p.speakableText, config, npcs: useGameStore.getState().world?.npcs || {}, onEnd: () => setSpeaking(false) })
+            }
+            const pending = playerTtsRef.current
+            playerTtsRef.current = null
+            if (pending) pending.then(startDmTts)
+            else startDmTts()
           }
         },
       })

@@ -30,11 +30,12 @@ import { getRulesContextString } from '@/lib/rules/rules'
  * Claude callers use both parts with cache_control on the static block.
  * Other providers concatenate them into a single string.
  */
-export function buildDmSystemPrompt({ campaign, world, characters, story, sessionContext }) {
+export function buildDmSystemPrompt({ campaign, world, characters, story, sessionContext, config }) {
   const staticPart = [
     getCorePersona(campaign?.storyStyle),
     getRulesContextString(),
     getCampaignContext(campaign),
+    getContentDirectives(config),
     getResponseFormat(),
   ].filter(Boolean).join('\n\n---\n\n')
 
@@ -281,6 +282,31 @@ function getNarrativePlanContext(world, story) {
         lines.push(`  - ${npc.name} (${npc.role || 'unknown'}) — planned for Act ${npc.plannedAct}${motivationPart}`)
       }
     }
+  }
+
+  return lines.join('\n')
+}
+
+// ── Content directives ────────────────────────────────────────────────────────
+
+function getContentDirectives(config) {
+  const adult = config?.app?.adultContent
+  const gore = config?.app?.goreLevel || 'moderate'
+
+  const lines = ['CONTENT GUIDELINES:']
+
+  if (adult) {
+    lines.push('Adult content: ENABLED. Romantic and sexual content between consenting adult characters is permitted when dramatically appropriate. Be evocative and purposeful — do not insert it gratuitously.')
+  } else {
+    lines.push('Adult content: DISABLED. Romantic or intimate scenes must fade to black. Keep all content appropriate for a mature but non-explicit audience.')
+  }
+
+  if (gore === 'none') {
+    lines.push('Violence: Keep combat and injury abstract. Describe outcomes (defeated, wounded, dead) without graphic physical detail.')
+  } else if (gore === 'moderate') {
+    lines.push('Violence: Moderate detail is acceptable — wounds and deaths can be vivid but should not be gratuitous or dwell on suffering.')
+  } else if (gore === 'explicit') {
+    lines.push('Violence: Explicit gore is permitted when dramatically appropriate. Injuries, deaths, and the physical realities of violence may be described in full visceral detail.')
   }
 
   return lines.join('\n')

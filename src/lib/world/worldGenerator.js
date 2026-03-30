@@ -15,8 +15,33 @@
  */
 
 import { sendToLlm } from '@/services/llm/llmService'
-import { ensureCollections, deleteCollections, seedEntitiesFromWorld } from '@/services/rag/ragService'
+import { ensureCollections, resetGameCollections, seedEntitiesFromWorld, retrieveContext } from '@/services/rag/ragService'
 import { useAppStore } from '@/store/appStore'
+
+// ── Lore context helper ───────────────────────────────────────────────────────
+
+/**
+ * Retrieve relevant chunks from uploaded documents for a given query.
+ * Returns a formatted string ready to inject into a prompt, or '' if nothing found.
+ */
+async function fetchLoreContext(campaignId, query) {
+  if (!campaignId) return ''
+  const store = useAppStore.getState()
+  if (!store.ragAvailable || store.config?.rag?.enabled === false) return ''
+  try {
+    const results = await retrieveContext(campaignId, query, {
+      maxResults: 8,
+      threshold: 0.45,        // looser than gameplay — world gen benefits from broad matches
+    })
+    // Only use uploaded document chunks, not game-generated entities/events
+    const docChunks = results.filter(r => r.type === 'resource')
+    if (!docChunks.length) return ''
+    return docChunks.map(r => r.content.trim()).filter(Boolean).join('\n\n')
+  } catch (err) {
+    console.warn('[WorldGen] Lore context retrieval failed (non-fatal):', err.message)
+    return ''
+  }
+}
 
 // ── Main world generation ─────────────────────────────────────────────────────
 
@@ -27,7 +52,11 @@ import { useAppStore } from '@/store/appStore'
 export async function generateWorld({ campaign, characters, config, campaignId }) {
   console.log('[WorldGen] Generating world for:', campaign.name)
 
-  const prompt = buildWorldGenPrompt(campaign, characters)
+  const query = [campaign.name, campaign.tone, campaign.atmosphere, ...(campaign.themes || [])].filter(Boolean).join(' ')
+  const lore = await fetchLoreContext(campaignId, query)
+  if (lore) console.log('[WorldGen] Injecting lore from documents:', lore.length, 'chars')
+
+  const prompt = buildWorldGenPrompt(campaign, characters, lore, config)
 
   let raw = ''
   await sendToLlm({
@@ -45,8 +74,7 @@ export async function generateWorld({ campaign, characters, config, campaignId }
   // Seed entity collection if RAG is available
   if (campaignId && useAppStore.getState().ragAvailable && useAppStore.getState().config?.rag?.enabled !== false) {
     try {
-      await deleteCollections(campaignId)
-      await ensureCollections(campaignId)
+      await resetGameCollections(campaignId)
       await seedEntitiesFromWorld(campaignId, world)
       console.log('[RAG] Entity collection seeded from world state')
     } catch (err) {
@@ -66,7 +94,8 @@ export async function generateWorld({ campaign, characters, config, campaignId }
 export async function expandLocation({ locationId, locationName, world, campaign, config }) {
   console.log('[WorldGen] Expanding location:', locationName)
 
-  const prompt = buildLocationExpandPrompt(locationId, locationName, world, campaign)
+  const lore = await fetchLoreContext(campaign.id, `${locationName} ${campaign.name}`)
+  const prompt = buildLocationExpandPrompt(locationId, locationName, world, campaign, lore)
 
   let raw = ''
   await sendToLlm({
@@ -88,7 +117,8 @@ export async function expandLocation({ locationId, locationName, world, campaign
  * Gives them a full personality, history, and secrets.
  */
 export async function generateNpc({ description, locationId, world, campaign, config }) {
-  const prompt = buildNpcPrompt(description, locationId, world, campaign)
+  const lore = await fetchLoreContext(campaign.id, `${description} character ${campaign.name}`)
+  const prompt = buildNpcPrompt(description, locationId, world, campaign, lore)
 
   let raw = ''
   await sendToLlm({
@@ -132,19 +162,25 @@ export async function advanceAct({ currentAct, world, campaign, story, config })
 
 // ── Prompt builders ───────────────────────────────────────────────────────────
 
-function buildWorldGenPrompt(campaign, characters) {
+function buildWorldGenPrompt(campaign, characters, lore = '', config = {}) {
   const charList = Object.values(characters || {})
     .map(c => `${c.name} — ${c.ancestry} ${c.background}`)
     .join('\n')
 
-  return `Generate a TTRPG campaign world skeleton. ALL string values must be 1 sentence max.
+  const loreBlock = lore
+    ? `SOURCE LORE (canonical — use these names, places, factions, and events verbatim; invent only what the lore does not cover):\n${lore}\n\n`
+    : ''
+
+  const contentBlock = buildContentBlock(config)
+
+  return `${loreBlock}Generate a TTRPG campaign world skeleton. ALL string values must be 1 sentence max.
 
 CAMPAIGN: "${campaign.name}"
 ATMOSPHERE: ${campaign.tone || campaign.atmosphere || 'adventure'}
 THEMES: ${(campaign.themes || []).join(', ') || 'discovery, conflict, wonder'}
 DANGER: ${campaign.dangerLevel || 'moderate'}
 CHARACTERS: ${charList || 'One unnamed adventurer'}
-
+${contentBlock ? `\n${contentBlock}\n` : ''}
 Respond with ONLY valid JSON in EXACTLY this field order (critical fields first):
 {"name":"world name","tagline":"tagline","description":"1-2 sentences",
 "locations":{
@@ -179,13 +215,15 @@ Rules:
 - Output fields in the order shown — locations and npcs are most critical`
 }
 
-function buildLocationExpandPrompt(locationId, locationName, world, campaign) {
+function buildLocationExpandPrompt(locationId, locationName, world, campaign, lore = '') {
   const adjacentLocs = Object.values(world.locations || {})
     .filter(l => l.exits?.includes(locationId) || world.locations?.[locationId]?.exits?.includes(l.id))
     .map(l => l.name)
     .join(', ')
 
-  return `Expand this location for the campaign "${campaign.name}" (${campaign.tone || campaign.atmosphere}).
+  const loreBlock = lore ? `SOURCE LORE (canonical — follow names and details from this exactly):\n${lore}\n\n` : ''
+
+  return `${loreBlock}Expand this location for the campaign "${campaign.name}" (${campaign.tone || campaign.atmosphere}).
 
 LOCATION: "${locationName}" (id: ${locationId})
 WORLD: ${world.name} — ${world.tagline || ''}
@@ -208,10 +246,11 @@ Respond with ONLY valid JSON:
 }`
 }
 
-function buildNpcPrompt(description, locationId, world, campaign) {
+function buildNpcPrompt(description, locationId, world, campaign, lore = '') {
   const location = world.locations?.[locationId]
+  const loreBlock = lore ? `SOURCE LORE (canonical — use character names and details from this exactly):\n${lore}\n\n` : ''
 
-  return `Create an NPC for the campaign "${campaign.name}" (${campaign.tone || campaign.atmosphere}).
+  return `${loreBlock}Create an NPC for the campaign "${campaign.name}" (${campaign.tone || campaign.atmosphere}).
 
 CONTEXT: ${description}
 LOCATION: ${location?.name || 'unknown'} — ${location?.description || ''}
@@ -280,24 +319,48 @@ Avoid generic fantasy tropes unless specifically requested.
 Make NPCs feel like real people with contradictions and hidden depths.
 All locations should feel distinct and memorable.
 Plan a complete five-act narrative arc with a clearly defined antagonist and plot twists. NPCs should have specific planned acts for their introduction.
-Use UNIQUE, SPECIFIC names for every NPC, location, and faction — never reuse common names like "Elara", "Marcus", "Thorin", "The Rusty Anchor", "The Black Hand", etc. Invent names that fit the campaign's specific tone and culture.
+
+NAME UNIQUENESS — This is critical:
+Invent a coherent naming convention unique to this world's culture and tone, then apply it consistently. Every name must feel like it belongs to THIS world.
+Never use overused LLM fantasy names including but not limited to: Elara, Lyra, Mira, Sera, Kira, Zara, Thalia, Aria, Lena, Nara, Marcus, Kael, Theron, Dex, Ash, Ren, Kess, Vale, Vex, Ryn, Soren, Aldric, Gareth, Thorn, Thorin, Bram, Dirk, Finn, Duncan, Rowan, Mira, Silas, Hadrian, Nyx, Shadowmere, The Black Hand, The Rusty Anchor, The Silver Fox, The Crimson Dawn.
+Do NOT recycle names from your training data fantasy settings. Derive names from the world's specific atmosphere and themes.
+
+If SOURCE LORE is provided, treat it as the canonical foundation: preserve character names, place names, factions, and key events exactly as written. Invent only what the source does not cover.
+Respect CONTENT GUIDELINES if provided.
 Respond ONLY with valid JSON — no preamble, no explanation, no markdown code fences.`
 
 const LOCATION_EXPAND_SYSTEM = `You are expanding a TTRPG location with rich sensory detail.
 Make the location feel alive, specific, and full of story potential.
 Include hidden details that reward careful exploration.
+If SOURCE LORE is provided, it is canonical — use its names and details verbatim.
 Respond ONLY with valid JSON — no preamble, no explanation, no markdown code fences.`
 
 const NPC_GEN_SYSTEM = `You are creating a TTRPG non-player character.
 Make them feel like a real person — specific, contradictory, with depth.
 Their motivation should drive interesting interactions.
 Their secret should be relevant to the campaign themes.
+If SOURCE LORE is provided, it is canonical — characters named in it must match exactly.
 Respond ONLY with valid JSON — no preamble, no explanation, no markdown code fences.`
 
 const ACT_ADVANCE_SYSTEM = `You are advancing a TTRPG campaign's story to its next act.
 Build naturally on what has happened. Raise stakes appropriately.
 New quests should feel like organic consequences of previous events.
 Respond ONLY with valid JSON — no preamble, no explanation, no markdown code fences.`
+
+// ── Content block helper ──────────────────────────────────────────────────────
+
+function buildContentBlock(config) {
+  const adult = config?.app?.adultContent
+  const gore = config?.app?.goreLevel || 'moderate'
+  const lines = ['CONTENT GUIDELINES:']
+  lines.push(adult
+    ? 'Adult content: ENABLED. Romantic and sexual themes may be present in the world and its NPCs.'
+    : 'Adult content: DISABLED. Keep all themes appropriate for a mature but non-explicit audience.')
+  if (gore === 'none') lines.push('Violence: Keep conflict and danger abstract — no graphic imagery.')
+  else if (gore === 'moderate') lines.push('Violence: Moderate — dangers and consequences are real but not dwelt upon gratuitously.')
+  else if (gore === 'explicit') lines.push('Violence: Explicit — the world does not shy from graphic violence, brutality, or gore.')
+  return lines.join('\n')
+}
 
 // ── JSON parsers ──────────────────────────────────────────────────────────────
 
