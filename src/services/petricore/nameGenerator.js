@@ -26,6 +26,58 @@ const STYLE_LABELS = {
 }
 
 /**
+ * extractNameArray()
+ * Robustly extracts a JSON array from an LLM response that may contain
+ * markdown fences, extra text, smart quotes, or individual malformed entries.
+ */
+function extractNameArray(raw) {
+  // 1. Strip markdown code fences
+  let text = raw.replace(/```json?\s*/gi, '').replace(/```\s*/g, '').trim()
+
+  // 2. Normalise curly/smart quotes to straight quotes
+  text = text
+    .replace(/[\u2018\u2019]/g, "'")   // ' '  → '
+    .replace(/\u201C/g, '"')            // "    → "
+    .replace(/\u201D/g, '"')            // "    → "
+
+  // 3. Find the outermost JSON array using balanced bracket walking
+  const start = text.indexOf('[')
+  if (start === -1) return null
+
+  let depth = 0, inString = false, escape = false, end = -1
+  for (let i = start; i < text.length; i++) {
+    const c = text[i]
+    if (escape) { escape = false; continue }
+    if (c === '\\' && inString) { escape = true; continue }
+    if (c === '"') { inString = !inString; continue }
+    if (inString) continue
+    if (c === '[') depth++
+    else if (c === ']') { depth--; if (depth === 0) { end = i; break } }
+  }
+  if (end === -1) return null
+
+  const jsonStr = text.slice(start, end + 1)
+
+  // 4. Try to parse the full array first
+  try {
+    const arr = JSON.parse(jsonStr)
+    return Array.isArray(arr) ? arr : null
+  } catch (_) {
+    // 5. Fallback: parse entry by entry — find each {...} object and try individually
+    const results = []
+    const objRe = /\{[^{}]*\}/g
+    let m
+    while ((m = objRe.exec(jsonStr)) !== null) {
+      try {
+        const entry = JSON.parse(m[0])
+        if (entry?.name) results.push(entry)
+      } catch (_) { /* skip malformed entry */ }
+    }
+    return results.length > 0 ? results : null
+  }
+}
+
+/**
  * generateNamePool()
  * Makes a single LLM call requesting diverse NPC names based on config.
  * Saves to DB and returns the array of name objects.
@@ -98,11 +150,8 @@ Each entry must be exactly:
 
   onProgress?.('Parsing name list…')
 
-  const match = raw.match(/\[[\s\S]*\]/)
-  if (!match) throw new Error('LLM did not return a JSON array for name pool')
-
-  const parsed = JSON.parse(match[0])
-  if (!Array.isArray(parsed)) throw new Error('Name pool response is not an array')
+  const parsed = extractNameArray(raw)
+  if (!parsed) throw new Error('LLM did not return a parseable JSON array for name pool')
 
   // Deduplicate by name (case-insensitive)
   const seen = new Set()
