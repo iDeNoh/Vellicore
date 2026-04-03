@@ -259,7 +259,7 @@ export default function DatasetViewer() {
             {' / '}
             {coverage.total?.toLocaleString()} total
           </span>
-          {coverage.total > 0 && (
+          {(total > 0 || coverage.total > 0) && (
             confirmClear ? (
               <div className="flex items-center gap-1.5">
                 <span className="text-xs font-ui text-parchment-400">Delete entire dataset?</span>
