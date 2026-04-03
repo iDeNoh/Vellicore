@@ -1,17 +1,19 @@
 import React, { useState } from 'react'
-import { FlaskConical, Sliders, Play, Table, Download } from 'lucide-react'
+import { FlaskConical, Sliders, Play, Table, Download, BookUser } from 'lucide-react'
 import clsx from 'clsx'
 import usePetricoreStore from '@/store/petricoreStore'
 import { isRunning } from '@/services/petricore/petricoreService'
 import PlanBuilder from './petricore/PlanBuilder'
 import Generation from './petricore/Generation'
 import DatasetViewer from './petricore/DatasetViewer'
+import NamesetViewer from './petricore/NamesetViewer'
 import ExportModal from './petricore/ExportModal'
 
 const PAGES = [
   { id: 'plan',    label: 'Plan Builder',    Icon: Sliders },
   { id: 'gen',     label: 'Generation',      Icon: Play },
   { id: 'viewer',  label: 'Dataset Viewer',  Icon: Table },
+  { id: 'names',   label: 'Nameset Viewer',  Icon: BookUser },
 ]
 
 export default function PetricorePage() {
@@ -89,6 +91,7 @@ export default function PetricorePage() {
           {activePage === 'plan'   && <PlanBuilder onStartGeneration={handleStartGeneration} />}
           {activePage === 'gen'    && <Generation />}
           {activePage === 'viewer' && <DatasetViewer />}
+          {activePage === 'names'  && <NamesetViewer />}
         </div>
       </div>
 

@@ -3,6 +3,22 @@ setlocal enabledelayedexpansion
 title Vellicore Launcher
 color 0A
 
+:: ══════════════════════════════════════════════════════════════════════════════
+:: CONFIGURE THESE PATHS — set each to the folder where you installed the service
+:: Leave a path empty ("") to skip that service regardless of settings
+:: ══════════════════════════════════════════════════════════════════════════════
+
+set "VELLICORE_DIR=%~dp0"
+set "CHROMADB_DIR=C:\AI\chromadb"
+set "SDNEXT_DIR=C:\AI\SDNext"
+set "KOKORO_DIR=C:\AI\kokoro"
+set "CHATTERBOX_DIR=C:\AI\chatterbox"
+
+:: SDNext launch flags — remove --use-rocm if you have an NVIDIA GPU
+set "SDNEXT_FLAGS=--api --listen"
+
+:: ══════════════════════════════════════════════════════════════════════════════
+
 :: ── Parse arguments ───────────────────────────────────────────────────────────
 
 set QUICK=0
@@ -55,7 +71,7 @@ if %errorlevel%==0 (
 )
 
 echo        Launching ChromaDB...
-start "ChromaDB" cmd /k "cd /d C:\AI\chromadb && call start.bat"
+start "ChromaDB" cmd /k "cd /d !CHROMADB_DIR! && call start.bat"
 
 if !QUICK!==1 (
     echo  [--quick] Skipping wait for ChromaDB.
@@ -95,7 +111,7 @@ if %errorlevel%==0 (
 )
 
 echo        Launching SDNext...
-start "SDNext" cmd /k "cd /d E:\AI\SDNext && webui.bat --debug --use-rocm --listen --insecure"
+start "SDNext" cmd /k "cd /d !SDNEXT_DIR! && webui.bat !SDNEXT_FLAGS!"
 
 if !QUICK!==1 (
     echo  [--quick] Skipping wait for SDNext.
@@ -135,7 +151,7 @@ if /i "!TTS_PROVIDER!"=="kokoro" (
         goto TTS_DONE
     )
     echo        Launching Kokoro TTS...
-    start "Kokoro TTS" cmd /k "cd /d C:\AI\kokoro && call venv\Scripts\activate && python serve.py"
+    start "Kokoro TTS" cmd /k "cd /d !KOKORO_DIR! && call venv\Scripts\activate && python serve.py"
 
     if !QUICK!==1 ( echo  [--quick] Skipping wait for Kokoro. & echo. & goto TTS_DONE )
 
@@ -159,7 +175,7 @@ if /i "!TTS_PROVIDER!"=="chatterbox" (
         goto TTS_DONE
     )
     echo        Launching Chatterbox...
-    start "Chatterbox TTS" cmd /k "cd /d C:\AI\chatterbox && call venv\Scripts\activate && python app.py"
+    start "Chatterbox TTS" cmd /k "cd /d !CHATTERBOX_DIR! && call venv\Scripts\activate && python app.py"
 
     if !QUICK!==1 ( echo  [--quick] Skipping wait for Chatterbox. & echo. & goto TTS_DONE )
 
@@ -183,7 +199,7 @@ echo.
 echo  [4/4] Launching Vellicore...
 echo.
 
-cd /d E:\AI\tavern-ai
+cd /d !VELLICORE_DIR!
 set ELECTRON_NO_DEVTOOLS=1
 call npm run dev
 

@@ -573,6 +573,8 @@ ipcMain.handle('petricore:get-coverage',   ()               => { try { return ta
 ipcMain.handle('petricore:save-names',     (_, names)       => { try { tavernDb?.petricore.saveNames(names);    return { ok: true } } catch(e) { return { ok: false, error: e.message } } })
 ipcMain.handle('petricore:get-names',      (_, opts)        => { try { return tavernDb?.petricore.getNames(opts) ?? [] } catch(e) { return [] } })
 ipcMain.handle('petricore:update-name-usage', (_, id)       => { try { tavernDb?.petricore.updateNameUsage(id); return { ok: true } } catch(e) { return { ok: false, error: e.message } } })
+ipcMain.handle('petricore:update-name',       (_, { id, updates }) => { try { tavernDb?.petricore.updateName(id, updates); return { ok: true } } catch(e) { return { ok: false, error: e.message } } })
+ipcMain.handle('petricore:delete-name',       (_, id)       => { try { tavernDb?.petricore.deleteName(id); return { ok: true } } catch(e) { return { ok: false, error: e.message } } })
 
 ipcMain.handle('petricore:export', async (_, { examples, format, outputPath, filename }) => {
   try {

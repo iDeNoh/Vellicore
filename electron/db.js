@@ -887,6 +887,23 @@ function petricoreNameUpdateUsage(id) {
   db.prepare(`UPDATE petricore_names SET use_count = use_count + 1, last_used_at = ? WHERE id = ?`).run(Date.now(), id)
 }
 
+function petricoreNameUpdate(id, updates) {
+  if (!db) return
+  const fields = []
+  const params = { id }
+  if (updates.name           !== undefined) { fields.push('name = @name');                     params.name = updates.name }
+  if (updates.gender         !== undefined) { fields.push('gender = @gender');                 params.gender = updates.gender }
+  if (updates.cultural_origin !== undefined) { fields.push('cultural_origin = @culturalOrigin'); params.culturalOrigin = updates.cultural_origin }
+  if (updates.genre_tags     !== undefined) { fields.push('genre_tags = @genreTags');           params.genreTags = JSON.stringify(updates.genre_tags) }
+  if (fields.length === 0) return
+  db.prepare(`UPDATE petricore_names SET ${fields.join(', ')} WHERE id = @id`).run(params)
+}
+
+function petricoreNameDelete(id) {
+  if (!db) return
+  db.prepare(`DELETE FROM petricore_names WHERE id = ?`).run(id)
+}
+
 function parsePetricoreExample(row) {
   return {
     id: row.id,
@@ -939,6 +956,8 @@ module.exports = {
     saveNames:      (names)       => petricoreNamesSave(names),
     getNames:       (opts)        => petricoreNamesGet(opts),
     updateNameUsage:(id)          => petricoreNameUpdateUsage(id),
+    updateName:     (id, updates) => petricoreNameUpdate(id, updates),
+    deleteName:     (id)          => petricoreNameDelete(id),
   },
   resources: {
     getByCampaign(campaignId) {
