@@ -24,6 +24,9 @@ export default function AppShell() {
               <NavButton onClick={() => navigate('/lobby')} active={location.pathname === '/lobby'}>
                 Campaigns
               </NavButton>
+              <NavButton onClick={() => navigate('/petricore')} active={location.pathname === '/petricore'}>
+                Petricore
+              </NavButton>
               <NavButton onClick={() => navigate('/settings')} active={location.pathname === '/settings'}>
                 Settings
               </NavButton>

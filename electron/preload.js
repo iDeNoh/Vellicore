@@ -104,6 +104,7 @@ contextBridge.exposeInMainWorld('tavern', {
   // Routes LLM HTTP calls through main process to bypass renderer CORS
   llm: {
     send: (opts) => ipcRenderer.invoke('llm:send', opts),
+    get:  (opts) => ipcRenderer.invoke('llm:get', opts),
   },
 
   // ── TTS proxy ─────────────────────────────────────────────────────────────
@@ -136,5 +137,17 @@ contextBridge.exposeInMainWorld('tavern', {
   // ── Service launcher ──────────────────────────────────────────────────────
   services: {
     launch: (service, config) => ipcRenderer.invoke('services:launch', { service, config }),
+  },
+
+  // ── Petricore dataset tool ────────────────────────────────────────────────
+  petricore: {
+    saveExample:     (example)  => ipcRenderer.invoke('petricore:save-example', example),
+    updateExample:   (id, upd)  => ipcRenderer.invoke('petricore:update-example', id, upd),
+    getExamples:     (filters)  => ipcRenderer.invoke('petricore:get-examples', filters),
+    getCoverage:     ()         => ipcRenderer.invoke('petricore:get-coverage'),
+    saveNames:       (names)    => ipcRenderer.invoke('petricore:save-names', names),
+    getNames:        (opts)     => ipcRenderer.invoke('petricore:get-names', opts),
+    updateNameUsage: (id)       => ipcRenderer.invoke('petricore:update-name-usage', id),
+    export:          (opts)     => ipcRenderer.invoke('petricore:export', opts),
   },
 })

@@ -2,6 +2,7 @@ const { app, BrowserWindow, ipcMain, shell, dialog } = require('electron')
 const { spawn } = require('child_process')
 const path = require('path')
 const fs = require('fs')
+const { applyNameFilter } = require('./nameFilter')
 
 // pdfjs-dist (bundled inside pdf-parse) references browser canvas globals at load time.
 // Stub them out so the module loads cleanly in the main process.
@@ -318,6 +319,14 @@ ipcMain.handle('dialog:open-folder', async () => {
 // All LLM HTTP calls are proxied through the main process to avoid CORS
 // restrictions that apply to Electron's renderer (which behaves like a browser).
 
+ipcMain.handle('llm:get', async (_, { url, headers }) => {
+  try {
+    const res = await fetch(url, { headers, signal: AbortSignal.timeout(10_000) })
+    const data = await res.json()
+    return { ok: res.ok, status: res.status, data }
+  } catch (e) { return { ok: false, error: e.message } }
+})
+
 ipcMain.handle('llm:send', async (_, { url, headers, body }) => {
   const t0 = Date.now()
   const provider = url.includes('anthropic') ? 'Claude'
@@ -554,6 +563,59 @@ ipcMain.handle('app:relaunch', () => {
 // ── IPC: Service launcher ─────────────────────────────────────────────────────
 // Spawns local backend services (ChromaDB, SDNext, Kokoro, Chatterbox) in a
 // new detached console window. Uses paths from config.services if set.
+
+// ── IPC: Petricore ────────────────────────────────────────────────────────────
+
+ipcMain.handle('petricore:save-example',   (_, data)        => { try { tavernDb?.petricore.saveExample(data);    return { ok: true } } catch(e) { return { ok: false, error: e.message } } })
+ipcMain.handle('petricore:update-example', (_, id, updates) => { try { tavernDb?.petricore.updateExample(id, updates); return { ok: true } } catch(e) { return { ok: false, error: e.message } } })
+ipcMain.handle('petricore:get-examples',   (_, filters)     => { try { return tavernDb?.petricore.getExamples(filters) ?? { rows: [], total: 0 } } catch(e) { return { rows: [], total: 0 } } })
+ipcMain.handle('petricore:get-coverage',   ()               => { try { return tavernDb?.petricore.getCoverage() ?? {} } catch(e) { return {} } })
+ipcMain.handle('petricore:save-names',     (_, names)       => { try { tavernDb?.petricore.saveNames(names);    return { ok: true } } catch(e) { return { ok: false, error: e.message } } })
+ipcMain.handle('petricore:get-names',      (_, opts)        => { try { return tavernDb?.petricore.getNames(opts) ?? [] } catch(e) { return [] } })
+ipcMain.handle('petricore:update-name-usage', (_, id)       => { try { tavernDb?.petricore.updateNameUsage(id); return { ok: true } } catch(e) { return { ok: false, error: e.message } } })
+
+ipcMain.handle('petricore:export', async (_, { examples, format, outputPath, filename }) => {
+  try {
+    const outDir = outputPath || path.join(userDataPath, 'exports')
+    fs.mkdirSync(outDir, { recursive: true })
+    const outFile = path.join(outDir, filename || `vellicore_dataset_${Date.now()}.json`)
+
+    // Two-pass name filter: purge entries where any NPC name token appears > 3×
+    const { filtered, removed } = applyNameFilter(examples)
+    if (removed > 0) log('PETRICORE', `Name filter removed ${removed} entries (${examples.length} → ${filtered.length})`)
+
+    let content = ''
+    if (format === 'sharegpt') {
+      content = JSON.stringify(filtered.map(e => ({ conversations: e.conversations })), null, 2)
+    } else if (format === 'jsonl' || format === 'unsloth') {
+      content = filtered.map(e => JSON.stringify({ conversations: e.conversations })).join('\n')
+    } else if (format === 'chatml') {
+      content = filtered.map(e => {
+        const roleMap = { system: 'system', player: 'user', dm: 'assistant' }
+        return (e.conversations || []).map(turn =>
+          `<|im_start|>${roleMap[turn.from] || turn.from}\n${turn.value}<|im_end|>`
+        ).join('\n')
+      }).join('\n\n')
+    } else if (format === 'alpaca') {
+      const alpaca = filtered.map(e => {
+        const convs = e.conversations || []
+        const sys   = convs.find(c => c.from === 'system')?.value || ''
+        const turns = convs.filter(c => c.from !== 'system')
+        const lastPlayer = [...turns].reverse().find(c => c.from === 'player')?.value || ''
+        const lastDm     = [...turns].reverse().find(c => c.from === 'dm')?.value || ''
+        return { instruction: sys, input: lastPlayer, output: lastDm }
+      })
+      content = JSON.stringify(alpaca, null, 2)
+    }
+
+    fs.writeFileSync(outFile, content, 'utf-8')
+    log('PETRICORE', `Exported ${filtered.length} examples → ${outFile}`)
+    return { ok: true, path: outFile, count: filtered.length, removed }
+  } catch(e) {
+    log('PETRICORE', `Export failed: ${e.message}`, 'ERROR')
+    return { ok: false, error: e.message }
+  }
+})
 
 ipcMain.handle('services:launch', async (_, { service, config }) => {
   const svc = config?.services || {}

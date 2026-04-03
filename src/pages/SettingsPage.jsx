@@ -20,6 +20,10 @@ export default function SettingsPage() {
   const [chatterboxVoices, setChatterboxVoices] = useState([])
   const [ragStatus, setRagStatus] = useState(null) // null | 'checking' | 'ok' | 'error'
   const ragAvailable = useAppStore(s => s.ragAvailable)
+  const [geminiModels, setGeminiModels] = useState([])
+  const [geminiModelsFetching, setGeminiModelsFetching] = useState(false)
+  const [claudeModels, setClaudeModels] = useState([])
+  const [claudeModelsFetching, setClaudeModelsFetching] = useState(false)
 
   useEffect(() => {
     if (config) setLocal(JSON.parse(JSON.stringify(config)))
@@ -68,6 +72,46 @@ export default function SettingsPage() {
     await saveConfig(local)
     setSaved(true)
     setTimeout(() => setSaved(false), 2000)
+  }
+
+  async function fetchGeminiModels(apiKey) {
+    if (!apiKey) return
+    setGeminiModelsFetching(true)
+    try {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`
+      const data = isElectron
+        ? (await window.tavern.llm.get({ url, headers: {} })).data
+        : await fetch(url).then(r => r.json())
+      const models = (data.models || [])
+        .filter(m => m.supportedGenerationMethods?.includes('generateContent'))
+        .map(m => ({ id: m.name.replace('models/', ''), displayName: m.displayName }))
+        .sort((a, b) => a.id.localeCompare(b.id))
+      setGeminiModels(models)
+    } catch (e) {
+      setGeminiModels([])
+    } finally {
+      setGeminiModelsFetching(false)
+    }
+  }
+
+  async function fetchClaudeModels(apiKey) {
+    if (!apiKey) return
+    setClaudeModelsFetching(true)
+    try {
+      const url = 'https://api.anthropic.com/v1/models'
+      const headers = { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' }
+      const data = isElectron
+        ? (await window.tavern.llm.get({ url, headers })).data
+        : await fetch(url, { headers }).then(r => r.json())
+      const models = (data.data || [])
+        .map(m => ({ id: m.id, displayName: m.display_name || m.id }))
+        .sort((a, b) => a.id.localeCompare(b.id))
+      setClaudeModels(models)
+    } catch (e) {
+      setClaudeModels([])
+    } finally {
+      setClaudeModelsFetching(false)
+    }
   }
 
   async function testService(key, fn) {
@@ -180,11 +224,34 @@ export default function SettingsPage() {
               )}
 
               {local.llm.provider === 'claude' && (
-                <Field label="API Key">
-                  <input className="input font-mono" type="password"
-                    value={local.llm.claudeApiKey}
-                    onChange={e => update('llm.claudeApiKey', e.target.value)} />
-                </Field>
+                <>
+                  <Field label="API Key">
+                    <div className="flex gap-2">
+                      <input className="input font-mono flex-1" type="password"
+                        value={local.llm.claudeApiKey}
+                        onChange={e => update('llm.claudeApiKey', e.target.value)} />
+                      <button className="btn-secondary" disabled={claudeModelsFetching || !local.llm.claudeApiKey}
+                        onClick={() => fetchClaudeModels(local.llm.claudeApiKey)}>
+                        {claudeModelsFetching ? '...' : 'Fetch'}
+                      </button>
+                    </div>
+                  </Field>
+                  <Field label="Model">
+                    {claudeModels.length > 0 ? (
+                      <select className="input" value={local.llm.claudeModel || ''}
+                        onChange={e => update('llm.claudeModel', e.target.value)}>
+                        <option value="">— select a model —</option>
+                        {claudeModels.map(m => (
+                          <option key={m.id} value={m.id}>{m.displayName}</option>
+                        ))}
+                      </select>
+                    ) : (
+                      <input className="input" placeholder="e.g. claude-sonnet-4-6 (click Fetch to load list)"
+                        value={local.llm.claudeModel || ''}
+                        onChange={e => update('llm.claudeModel', e.target.value)} />
+                    )}
+                  </Field>
+                </>
               )}
 
               {local.llm.provider === 'openai-compat' && (
@@ -208,18 +275,31 @@ export default function SettingsPage() {
               {local.llm.provider === 'gemini' && (
                 <>
                   <Field label="API Key">
-                    <input className="input font-mono" type="password"
-                      placeholder="Get one free at aistudio.google.com"
-                      value={local.llm.geminiApiKey || ''}
-                      onChange={e => update('llm.geminiApiKey', e.target.value)} />
+                    <div className="flex gap-2">
+                      <input className="input font-mono flex-1" type="password"
+                        placeholder="Get one free at aistudio.google.com"
+                        value={local.llm.geminiApiKey || ''}
+                        onChange={e => update('llm.geminiApiKey', e.target.value)} />
+                      <button className="btn-secondary" disabled={geminiModelsFetching || !local.llm.geminiApiKey}
+                        onClick={() => fetchGeminiModels(local.llm.geminiApiKey)}>
+                        {geminiModelsFetching ? '...' : 'Fetch'}
+                      </button>
+                    </div>
                   </Field>
                   <Field label="Model">
-                    <select className="input" value={local.llm.geminiModel || 'gemini-2.0-flash'}
-                      onChange={e => update('llm.geminiModel', e.target.value)}>
-                      <option value="gemini-2.0-flash">Gemini 2.0 Flash (fast, free tier)</option>
-                      <option value="gemini-2.5-flash-preview-04-17">Gemini 2.5 Flash (thinking)</option>
-                      <option value="gemini-2.5-pro-preview-03-25">Gemini 2.5 Pro (best quality)</option>
-                    </select>
+                    {geminiModels.length > 0 ? (
+                      <select className="input" value={local.llm.geminiModel || ''}
+                        onChange={e => update('llm.geminiModel', e.target.value)}>
+                        <option value="">— select a model —</option>
+                        {geminiModels.map(m => (
+                          <option key={m.id} value={m.id}>{m.displayName}</option>
+                        ))}
+                      </select>
+                    ) : (
+                      <input className="input" placeholder="e.g. gemini-2.0-flash (click Fetch to load list)"
+                        value={local.llm.geminiModel || ''}
+                        onChange={e => update('llm.geminiModel', e.target.value)} />
+                    )}
                   </Field>
                 </>
               )}

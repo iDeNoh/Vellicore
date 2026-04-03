@@ -89,6 +89,21 @@
     @apply block text-xs font-ui font-medium text-parchment-300 mb-1;
   }
 
+  /* Petricore form controls */
+  .input-field {
+    @apply w-full rounded bg-ink-800 border border-ink-700 px-2.5 py-1.5
+           text-sm text-parchment-200 placeholder-ink-500
+           focus:outline-none focus:border-violet-500
+           transition-colors duration-150;
+  }
+
+  .filter-select {
+    @apply rounded bg-ink-800 border border-ink-700 px-2 py-1
+           text-xs text-parchment-300
+           focus:outline-none focus:border-violet-500
+           transition-colors duration-150;
+  }
+
   /* Divider */
   .divider {
     @apply border-t border-ink-600;

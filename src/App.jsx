@@ -12,6 +12,7 @@ import LobbyPage from '@/pages/LobbyPage'
 import CharacterCreatePage from '@/pages/CharacterCreatePage'
 import GamePage from '@/pages/GamePage'
 import SettingsPage from '@/pages/SettingsPage'
+import PetricorePage from '@/pages/PetricorePage'
 
 // Layout
 import AppShell from '@/components/layout/AppShell'
@@ -202,6 +203,7 @@ export default function App() {
           <Route path="/character/create/:campaignId" element={<CharacterCreatePage />} />
           <Route path="/game/:campaignId" element={<GamePage />} />
           <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/petricore" element={<PetricorePage />} />
         </Route>
 
         {/* Root redirect */}
