@@ -809,6 +809,11 @@ function petricoreExamplesGetAll(filters = {}) {
   return db.prepare(`SELECT * FROM petricore_examples ${where} ORDER BY created_at ASC`).all(params).map(parsePetricoreExample)
 }
 
+function petricoreExamplesClear() {
+  if (!db) return
+  db.prepare('DELETE FROM petricore_examples').run()
+}
+
 function petricoreCoverageGet() {
   if (!db) return {}
   const total     = db.prepare(`SELECT COUNT(*) as n FROM petricore_examples`).get()?.n || 0
@@ -904,6 +909,17 @@ function petricoreNameDelete(id) {
   db.prepare(`DELETE FROM petricore_names WHERE id = ?`).run(id)
 }
 
+function petricoreNameDeleteMany(ids) {
+  if (!db || !ids?.length) return
+  const placeholders = ids.map(() => '?').join(',')
+  db.prepare(`DELETE FROM petricore_names WHERE id IN (${placeholders})`).run(...ids)
+}
+
+function petricoreNameClear() {
+  if (!db) return
+  db.prepare('DELETE FROM petricore_names').run()
+}
+
 function parsePetricoreExample(row) {
   return {
     id: row.id,
@@ -952,12 +968,15 @@ module.exports = {
     updateExample:  (id, updates) => petricoreExampleUpdate(id, updates),
     getExamples:    (filters)     => petricoreExamplesGet(filters),
     getAllExamples:  (filters)     => petricoreExamplesGetAll(filters),
+    clearExamples:  ()            => petricoreExamplesClear(),
     getCoverage:    ()            => petricoreCoverageGet(),
     saveNames:      (names)       => petricoreNamesSave(names),
     getNames:       (opts)        => petricoreNamesGet(opts),
     updateNameUsage:(id)          => petricoreNameUpdateUsage(id),
     updateName:     (id, updates) => petricoreNameUpdate(id, updates),
     deleteName:     (id)          => petricoreNameDelete(id),
+    deleteNames:    (ids)         => petricoreNameDeleteMany(ids),
+    clearNames:     ()            => petricoreNameClear(),
   },
   resources: {
     getByCampaign(campaignId) {

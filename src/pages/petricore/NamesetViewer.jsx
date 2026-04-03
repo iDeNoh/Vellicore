@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useMemo, useRef, useCallback } from 'react'
-import { Trash2, RefreshCw, Users, List } from 'lucide-react'
+import { Trash2, RefreshCw, Users, List, X } from 'lucide-react'
 import clsx from 'clsx'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -36,7 +36,10 @@ export default function NamesetViewer() {
   const [genderFilter, setGenderFilter] = useState('all')
   const [editingId, setEditingId] = useState(null)
   const [editBuf, setEditBuf]     = useState({})
+  const [selected, setSelected]   = useState(new Set())
+  const [confirmClear, setConfirmClear] = useState(false)
   const nameInputRef              = useRef(null)
+  const lastSelectedId            = useRef(null)
 
   const load = useCallback(async () => {
     if (!window.tavern?.petricore) return
@@ -51,7 +54,6 @@ export default function NamesetViewer() {
 
   useEffect(() => { load() }, [load])
 
-  // Focus name input when editing starts
   useEffect(() => {
     if (editingId && nameInputRef.current) nameInputRef.current.focus()
   }, [editingId])
@@ -76,6 +78,7 @@ export default function NamesetViewer() {
   async function deleteName(id, e) {
     e.stopPropagation()
     setNames(prev => prev.filter(n => n.id !== id))
+    setSelected(prev => { const s = new Set(prev); s.delete(id); return s })
     if (editingId === id) setEditingId(null)
     await window.tavern?.petricore?.deleteName(id)
   }
@@ -86,6 +89,64 @@ export default function NamesetViewer() {
       const idx = GENDERS.indexOf(prev.gender)
       return { ...prev, gender: GENDERS[(idx + 1) % GENDERS.length] }
     })
+  }
+
+  // ── Selection helpers ─────────────────────────────────────────────────────
+
+  function toggleSelect(id, shiftKey, orderedIds) {
+    setSelected(prev => {
+      const next = new Set(prev)
+      if (shiftKey && lastSelectedId.current != null) {
+        const fromIdx = orderedIds.indexOf(lastSelectedId.current)
+        const toIdx   = orderedIds.indexOf(id)
+        if (fromIdx !== -1 && toIdx !== -1) {
+          const [lo, hi] = fromIdx <= toIdx ? [fromIdx, toIdx] : [toIdx, fromIdx]
+          for (let i = lo; i <= hi; i++) next.add(orderedIds[i])
+          return next
+        }
+      }
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+    lastSelectedId.current = id
+  }
+
+  function selectCluster(ids) {
+    setSelected(prev => {
+      const next = new Set(prev)
+      ids.forEach(id => next.add(id))
+      return next
+    })
+  }
+
+  function clearSelection() {
+    setSelected(new Set())
+    lastSelectedId.current = null
+  }
+
+  async function deleteSelected() {
+    const ids = [...selected]
+    setNames(prev => prev.filter(n => !selected.has(n.id)))
+    if (editingId && selected.has(editingId)) setEditingId(null)
+    clearSelection()
+    await window.tavern?.petricore?.deleteNames(ids)
+  }
+
+  async function deleteCluster(ids) {
+    const idSet = new Set(ids)
+    setNames(prev => prev.filter(n => !idSet.has(n.id)))
+    setSelected(prev => { const s = new Set(prev); ids.forEach(id => s.delete(id)); return s })
+    if (editingId && idSet.has(editingId)) setEditingId(null)
+    await window.tavern?.petricore?.deleteNames(ids)
+  }
+
+  async function clearAll() {
+    setNames([])
+    clearSelection()
+    setEditingId(null)
+    setConfirmClear(false)
+    await window.tavern?.petricore?.clearNames()
   }
 
   // ── Derived data ──────────────────────────────────────────────────────────
@@ -101,7 +162,9 @@ export default function NamesetViewer() {
     })
   }, [names, search, genderFilter])
 
+  const filteredIds = useMemo(() => filtered.map(n => n.id), [filtered])
   const unusedCount = useMemo(() => names.filter(n => !n.use_count).length, [names])
+  const selCount    = selected.size
 
   // ── Render ────────────────────────────────────────────────────────────────
 
@@ -113,6 +176,28 @@ export default function NamesetViewer() {
         <span className="text-xs font-ui text-parchment-500">
           {names.length} names · {unusedCount} unused · {clusters.length} clusters
         </span>
+
+        {/* Selection actions */}
+        {selCount > 0 && (
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-ui text-violet-400">{selCount} selected</span>
+            <button
+              onClick={deleteSelected}
+              className="flex items-center gap-1 px-2 py-1 rounded text-xs font-ui
+                         text-crimson-400 hover:text-crimson-300 hover:bg-crimson-500/10 transition-colors"
+            >
+              <Trash2 size={11} />
+              Delete selected
+            </button>
+            <button
+              onClick={clearSelection}
+              className="p-1 rounded text-parchment-600 hover:text-parchment-300 hover:bg-ink-800 transition-colors"
+              title="Clear selection"
+            >
+              <X size={12} />
+            </button>
+          </div>
+        )}
 
         <div className="flex items-center gap-1 ml-auto">
           <ViewToggle view={view} onChange={setView} />
@@ -146,6 +231,38 @@ export default function NamesetViewer() {
         >
           <RefreshCw size={13} className={clsx(loading && 'animate-spin')} />
         </button>
+
+        {/* Clear all */}
+        {names.length > 0 && (
+          confirmClear ? (
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs font-ui text-parchment-400">Clear all names?</span>
+              <button
+                onClick={clearAll}
+                className="px-2 py-0.5 rounded text-xs font-ui bg-crimson-600 hover:bg-crimson-500
+                           text-white transition-colors"
+              >
+                Yes, clear
+              </button>
+              <button
+                onClick={() => setConfirmClear(false)}
+                className="px-2 py-0.5 rounded text-xs font-ui text-parchment-400
+                           hover:text-parchment-200 hover:bg-ink-800 transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={() => setConfirmClear(true)}
+              className="px-2.5 py-1 rounded text-xs font-ui text-parchment-500
+                         hover:text-crimson-400 hover:bg-crimson-500/10 transition-colors"
+              title="Clear all names"
+            >
+              Clear all
+            </button>
+          )
+        )}
       </div>
 
       {/* Body */}
@@ -157,6 +274,9 @@ export default function NamesetViewer() {
         ) : view === 'all' ? (
           <AllNamesView
             names={filtered}
+            orderedIds={filteredIds}
+            selected={selected}
+            onToggleSelect={toggleSelect}
             editingId={editingId}
             editBuf={editBuf}
             nameInputRef={nameInputRef}
@@ -171,6 +291,10 @@ export default function NamesetViewer() {
           <ClustersView
             names={names}
             clusters={clusters}
+            selected={selected}
+            onToggleSelect={toggleSelect}
+            onSelectCluster={selectCluster}
+            onDeleteCluster={deleteCluster}
             editingId={editingId}
             editBuf={editBuf}
             nameInputRef={nameInputRef}
@@ -217,7 +341,7 @@ function ViewToggle({ view, onChange }) {
 
 // ── All Names view ────────────────────────────────────────────────────────────
 
-function AllNamesView({ names, ...editProps }) {
+function AllNamesView({ names, orderedIds, selected, onToggleSelect, ...editProps }) {
   if (names.length === 0) {
     return (
       <div className="flex items-center justify-center h-full text-parchment-600 text-xs font-ui">
@@ -229,7 +353,13 @@ function AllNamesView({ names, ...editProps }) {
   return (
     <div className="divide-y divide-ink-800/60">
       {names.map(n => (
-        <NameRow key={n.id} name={n} {...editProps} />
+        <NameRow
+          key={n.id}
+          name={n}
+          selected={selected.has(n.id)}
+          onToggleSelect={(id, shiftKey) => onToggleSelect(id, shiftKey, orderedIds)}
+          {...editProps}
+        />
       ))}
     </div>
   )
@@ -237,7 +367,7 @@ function AllNamesView({ names, ...editProps }) {
 
 // ── Clusters view ─────────────────────────────────────────────────────────────
 
-function ClustersView({ names, clusters, ...editProps }) {
+function ClustersView({ names, clusters, selected, onToggleSelect, onSelectCluster, onDeleteCluster, ...editProps }) {
   const nameById = useMemo(() => Object.fromEntries(names.map(n => [n.id, n])), [names])
 
   if (clusters.length === 0) {
@@ -251,7 +381,8 @@ function ClustersView({ names, clusters, ...editProps }) {
   return (
     <div className="p-4 space-y-5">
       {clusters.map(({ token, ids }) => {
-        const members = ids.map(id => nameById[id]).filter(Boolean)
+        const members   = ids.map(id => nameById[id]).filter(Boolean)
+        const memberIds = members.map(n => n.id)
         return (
           <div key={token}>
             <div className="flex items-center gap-2 mb-1.5">
@@ -260,10 +391,32 @@ function ClustersView({ names, clusters, ...editProps }) {
               </span>
               <span className="text-xs text-parchment-600 font-ui">×{members.length}</span>
               <div className="flex-1 h-px bg-ink-800" />
+              <button
+                onClick={() => onSelectCluster(memberIds)}
+                className="text-xs font-ui text-parchment-600 hover:text-parchment-300
+                           hover:bg-ink-800 px-2 py-0.5 rounded transition-colors"
+              >
+                Select all
+              </button>
+              <button
+                onClick={() => onDeleteCluster(memberIds)}
+                className="flex items-center gap-1 text-xs font-ui text-parchment-600
+                           hover:text-crimson-400 hover:bg-crimson-500/10 px-2 py-0.5 rounded transition-colors"
+              >
+                <Trash2 size={10} />
+                Delete cluster
+              </button>
             </div>
             <div className="divide-y divide-ink-800/40 rounded border border-ink-800">
               {members.map(n => (
-                <NameRow key={n.id} name={n} compact {...editProps} />
+                <NameRow
+                  key={n.id}
+                  name={n}
+                  compact
+                  selected={selected.has(n.id)}
+                  onToggleSelect={(id, shiftKey) => onToggleSelect(id, shiftKey, memberIds)}
+                  {...editProps}
+                />
               ))}
             </div>
           </div>
@@ -275,13 +428,19 @@ function ClustersView({ names, clusters, ...editProps }) {
 
 // ── Name row (shared by both views) ──────────────────────────────────────────
 
-function NameRow({ name: n, compact = false, editingId, editBuf, nameInputRef,
+function NameRow({ name: n, compact = false, selected, onToggleSelect,
+                   editingId, editBuf, nameInputRef,
                    onSelect, onCommit, onCancel, onDelete, onEditBuf, onCycleGender }) {
   const isEditing = editingId === n.id
 
   function handleKeyDown(e) {
     if (e.key === 'Enter')  { e.preventDefault(); onCommit() }
     if (e.key === 'Escape') { e.preventDefault(); onCancel() }
+  }
+
+  function handleCheckbox(e) {
+    e.stopPropagation()
+    onToggleSelect(n.id, e.shiftKey)
   }
 
   return (
@@ -292,9 +451,22 @@ function NameRow({ name: n, compact = false, editingId, editBuf, nameInputRef,
         compact ? 'py-1.5' : 'py-2.5',
         isEditing
           ? 'bg-violet-600/10 cursor-default'
-          : 'hover:bg-ink-800/60'
+          : selected
+            ? 'bg-violet-600/10 hover:bg-violet-600/15'
+            : 'hover:bg-ink-800/60'
       )}
     >
+      {/* Checkbox */}
+      <input
+        type="checkbox"
+        checked={selected}
+        onChange={handleCheckbox}
+        onClick={e => e.stopPropagation()}
+        className="w-3 h-3 flex-shrink-0 accent-violet-500 cursor-pointer
+                   opacity-0 group-hover:opacity-100 transition-opacity"
+        style={{ opacity: selected ? 1 : undefined }}
+      />
+
       {/* Gender badge — clickable when editing */}
       <button
         onClick={isEditing ? onCycleGender : e => { e.stopPropagation(); onSelect(n) }}

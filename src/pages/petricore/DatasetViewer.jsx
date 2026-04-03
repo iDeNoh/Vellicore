@@ -1,7 +1,41 @@
 import React, { useEffect, useState, useCallback } from 'react'
-import { CheckCircle, XCircle, AlertCircle, ChevronDown, ChevronUp, RefreshCw } from 'lucide-react'
+import { CheckCircle, XCircle, AlertCircle, ChevronDown, ChevronUp, RefreshCw, Trash2 } from 'lucide-react'
 import clsx from 'clsx'
 import usePetricoreStore from '@/store/petricoreStore'
+
+// ── Tag parsing ───────────────────────────────────────────────────────────────
+
+function parseTaggedText(text) {
+  // Matches [TAGNAME...] and for VOICE also captures the immediately-following "quoted dialogue"
+  const TAG_RE = /(\[([A-Z_]+)[^\]]*\](?:"[^"]*")?)/g
+  const segments = []
+  let last = 0, m
+  while ((m = TAG_RE.exec(text)) !== null) {
+    if (m.index > last) segments.push({ type: 'text', value: text.slice(last, m.index) })
+    segments.push({ type: 'tag', tagName: m[2], value: m[1] })
+    last = TAG_RE.lastIndex
+  }
+  if (last < text.length) segments.push({ type: 'text', value: text.slice(last) })
+  return segments
+}
+
+function TaggedText({ text }) {
+  const segments = parseTaggedText(text)
+  return (
+    <>
+      {segments.map((seg, i) =>
+        seg.type === 'text'
+          ? <span key={i}>{seg.value}</span>
+          : <span key={i} className={clsx(
+              'inline rounded px-1 mx-px text-xs font-mono font-medium',
+              TAG_COLORS[seg.tagName] || 'bg-zinc-600/20 text-zinc-300'
+            )}>
+              {seg.value}
+            </span>
+      )}
+    </>
+  )
+}
 
 const TAG_COLORS = {
   VOICE:'bg-blue-500/20 text-blue-300', ROLL:'bg-amber-500/20 text-amber-300',
@@ -34,7 +68,7 @@ const SORT_OPTIONS = [
 ]
 
 export default function DatasetViewer() {
-  const { viewerFilters, setViewerFilters, setViewerPage, coverage } = usePetricoreStore()
+  const { viewerFilters, setViewerFilters, setViewerPage, coverage, setCoverage } = usePetricoreStore()
   const [examples, setExamples] = useState([])
   const [total, setTotal] = useState(0)
   const [selected, setSelected] = useState(null)
@@ -42,6 +76,7 @@ export default function DatasetViewer() {
   const [systemOpen, setSystemOpen] = useState(false)
   const [showRaw, setShowRaw] = useState(false)
   const [exportModal, setExportModal] = useState(null) // { scope }
+  const [confirmClear, setConfirmClear] = useState(false)
 
   const fetchExamples = useCallback(async () => {
     if (!window.tavern?.petricore) return
@@ -58,6 +93,16 @@ export default function DatasetViewer() {
   }, [viewerFilters])
 
   useEffect(() => { fetchExamples() }, [fetchExamples])
+
+  async function clearDataset() {
+    await window.tavern?.petricore?.clearExamples()
+    setExamples([])
+    setTotal(0)
+    setSelected(null)
+    setConfirmClear(false)
+    setCoverage({ total: 0, accepted: 0, rejected: 0, pending: 0, withErrors: 0,
+                  byTag: {}, byGenre: {}, byLength: {}, byDialogue: {}, byStyle: {}, byExchange: {}, totalTokens: 0 })
+  }
 
   async function handleStatusChange(id, status, reason) {
     await window.tavern?.petricore?.updateExample(id, { status, rejection_reason: reason || null })
@@ -207,12 +252,36 @@ export default function DatasetViewer() {
 
       {/* Footer bar */}
       <div className="flex-shrink-0 flex items-center justify-between px-4 py-2 border-t border-ink-800 bg-ink-900">
-        <span className="text-xs text-parchment-500 font-ui">
-          {total.toLocaleString()} examples
-          {f.status !== 'all' && ` (${f.status})`}
-          {' / '}
-          {coverage.total?.toLocaleString()} total
-        </span>
+        <div className="flex items-center gap-3">
+          <span className="text-xs text-parchment-500 font-ui">
+            {total.toLocaleString()} examples
+            {f.status !== 'all' && ` (${f.status})`}
+            {' / '}
+            {coverage.total?.toLocaleString()} total
+          </span>
+          {coverage.total > 0 && (
+            confirmClear ? (
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs font-ui text-parchment-400">Delete entire dataset?</span>
+                <button onClick={clearDataset}
+                  className="px-2 py-0.5 rounded text-xs font-ui bg-crimson-600 hover:bg-crimson-500 text-white transition-colors">
+                  Yes, delete
+                </button>
+                <button onClick={() => setConfirmClear(false)}
+                  className="px-2 py-0.5 rounded text-xs font-ui text-parchment-400 hover:text-parchment-200 hover:bg-ink-800 transition-colors">
+                  Cancel
+                </button>
+              </div>
+            ) : (
+              <button onClick={() => setConfirmClear(true)}
+                className="flex items-center gap-1 text-xs font-ui text-parchment-600
+                           hover:text-crimson-400 hover:bg-crimson-500/10 px-2 py-0.5 rounded transition-colors">
+                <Trash2 size={11} />
+                Delete dataset
+              </button>
+            )
+          )}
+        </div>
         <div className="flex gap-2">
           <ExportButton label="Export accepted" scope="accepted" />
           <ExportButton label="Export filtered" scope="filtered" filters={viewerFilters} />
@@ -318,7 +387,9 @@ function DetailPanel({ ex, systemOpen, onToggleSystem, showRaw, onToggleRaw, onA
             turn.from === 'dm' ? 'border-violet-500/20 bg-ink-900' : 'border-ink-700 bg-ink-800/50'
           )}>
             <p className="text-xs font-ui text-parchment-500 mb-1 uppercase">{turn.from === 'player' ? 'Player' : 'DM'}</p>
-            <p className="text-sm text-parchment-200 leading-relaxed whitespace-pre-wrap">{turn.value}</p>
+            <div className="text-sm text-parchment-200 leading-relaxed whitespace-pre-wrap">
+              {turn.from === 'dm' ? <TaggedText text={turn.value} /> : turn.value}
+            </div>
           </div>
         )
       })}
