@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { FlaskConical, Sliders, Play, Table, Download, BookUser } from 'lucide-react'
 import clsx from 'clsx'
 import usePetricoreStore from '@/store/petricoreStore'
@@ -19,7 +19,30 @@ const PAGES = [
 export default function PetricorePage() {
   const [activePage, setActivePage] = useState('plan')
   const [exportOpen, setExportOpen] = useState(false)
-  const { datasetName, setDatasetName, generation, coverage, plan } = usePetricoreStore()
+  const { datasetName, setDatasetName, generation, coverage, plan, setPlan, setNamePool } = usePetricoreStore()
+
+  // Load saved plan on mount
+  useEffect(() => {
+    async function loadSavedPlan() {
+      if (!window.tavern?.petricore) return
+      try {
+        const saved = await window.tavern.petricore.loadPlan()
+        if (!saved) return
+        const { namePool, ...rest } = saved
+        // Merge non-namePool fields
+        if (Object.keys(rest).length) setPlan(rest)
+        // Merge namePool config, preserving the live names/generated state from SQLite
+        if (namePool) {
+          const { names: _n, generated: _g, ...namePoolConfig } = namePool
+          const currentNp = usePetricoreStore.getState().plan.namePool
+          setNamePool({ ...currentNp, ...namePoolConfig })
+        }
+      } catch (e) {
+        console.error('Failed to load petricore plan:', e)
+      }
+    }
+    loadSavedPlan()
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const statusLabel = generation.running && generation.paused ? 'Paused'
     : generation.running ? 'Generating'

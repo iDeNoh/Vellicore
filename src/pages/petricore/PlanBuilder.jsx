@@ -29,6 +29,7 @@ export default function PlanBuilder({ onStartGeneration }) {
     plan.namePool.generated ? `${plan.namePool.names.length} names ready` : 'Not generated'
   )
   const [nameLoading, setNameLoading] = useState(false)
+  const [saveStatus, setSaveStatus] = useState(null) // null | 'saving' | 'saved' | 'error'
 
   async function handleGenerateNames() {
     setNameLoading(true)
@@ -41,6 +42,23 @@ export default function PlanBuilder({ onStartGeneration }) {
       setNameStatus(`Error: ${err.message}`)
     } finally {
       setNameLoading(false)
+    }
+  }
+
+  async function handleSavePlan() {
+    if (!window.tavern?.petricore) return
+    setSaveStatus('saving')
+    try {
+      // Strip generated name list — it lives in SQLite, not the plan file
+      const { namePool } = plan
+      const { names: _n, generated: _g, ...namePoolConfig } = namePool
+      const planToSave = { ...plan, namePool: namePoolConfig }
+      const result = await window.tavern.petricore.savePlan(planToSave)
+      setSaveStatus(result.ok ? 'saved' : 'error')
+    } catch {
+      setSaveStatus('error')
+    } finally {
+      setTimeout(() => setSaveStatus(null), 2000)
     }
   }
 
@@ -505,10 +523,17 @@ export default function PlanBuilder({ onStartGeneration }) {
 
       {/* Footer actions */}
       <div className="flex items-center gap-3 pt-2 pb-6">
-        <button className="btn-ghost flex items-center gap-1.5 text-sm">
+        <button onClick={handleSavePlan} disabled={saveStatus === 'saving'}
+          className="btn-ghost flex items-center gap-1.5 text-sm disabled:opacity-50">
           <Save size={14} />
-          Save Plan
+          {saveStatus === 'saving' ? 'Saving…' : 'Save Plan'}
         </button>
+        {saveStatus === 'saved' && (
+          <span className="text-xs font-ui text-emerald-400">Saved</span>
+        )}
+        {saveStatus === 'error' && (
+          <span className="text-xs font-ui text-rose-400">Save failed</span>
+        )}
         <button
           onClick={onStartGeneration}
           className="flex items-center gap-1.5 px-4 py-2 rounded bg-violet-600 hover:bg-violet-500

@@ -153,6 +153,8 @@ contextBridge.exposeInMainWorld('tavern', {
     deleteNames:     (ids)     => ipcRenderer.invoke('petricore:delete-names', ids),
     clearNames:      ()        => ipcRenderer.invoke('petricore:clear-names'),
     clearExamples:   ()        => ipcRenderer.invoke('petricore:clear-examples'),
+    savePlan:        (plan)    => ipcRenderer.invoke('petricore:save-plan', plan),
+    loadPlan:        ()        => ipcRenderer.invoke('petricore:load-plan'),
     export:          (opts)     => ipcRenderer.invoke('petricore:export', opts),
   },
 })

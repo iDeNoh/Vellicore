@@ -175,6 +175,21 @@ ipcMain.handle('config:save', (_, config) => {
 ipcMain.handle('config:get-user-data-path', () => userDataPath)
 ipcMain.handle('db:get-path', () => dbPath)
 
+const petricorePlanPath = path.join(userDataPath, 'petricore-plan.json')
+ipcMain.handle('petricore:save-plan', (_, plan) => {
+  try {
+    fs.mkdirSync(userDataPath, { recursive: true })
+    fs.writeFileSync(petricorePlanPath, JSON.stringify(plan, null, 2))
+    return { ok: true }
+  } catch (e) { return { ok: false, error: e.message } }
+})
+ipcMain.handle('petricore:load-plan', () => {
+  try {
+    if (fs.existsSync(petricorePlanPath)) return JSON.parse(fs.readFileSync(petricorePlanPath, 'utf-8'))
+  } catch (e) { console.error('Failed to load petricore plan:', e) }
+  return null
+})
+
 // ── IPC: Campaigns ────────────────────────────────────────────────────────────
 
 ipcMain.handle('db:campaigns:all',    ()        => { try { return tavernDb?.campaigns.getAll() ?? [] } catch(e) { return [] } })
