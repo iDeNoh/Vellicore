@@ -7,27 +7,86 @@
 
 import { sendToLlm } from '@/services/llm/llmService'
 
+const ORIGIN_LABELS = {
+  european:       'European (Western, Central, Southern, Mediterranean)',
+  east_asian:     'East Asian (Chinese, Japanese, Korean, Vietnamese)',
+  middle_eastern: 'Middle Eastern & North African (Arabic, Persian, Turkish, Hebrew)',
+  african:        'Sub-Saharan African (Yoruba, Swahili, Zulu, Amharic, etc.)',
+  latin_american: 'Latin American & Indigenous American (Spanish-origin, Nahuatl, Quechua, etc.)',
+  slavic:         'Slavic & Eastern European (Russian, Polish, Czech, Serbian, etc.)',
+  norse:          'Norse & Old Germanic (Viking-era, Anglo-Saxon, Old Norse)',
+  invented:       'Invented / Fantastical (no real-world cultural basis — sounds original and unplaceable)',
+}
+
+const STYLE_LABELS = {
+  mythic:     'Ancient & mythic — evokes gods, heroes, lost civilisations; sounds weighty and timeless',
+  grounded:   'Grounded & realistic — could belong to an ordinary person in a historical setting',
+  futuristic: 'Futuristic & coined — feels invented, sci-fi, or cyberpunk; may use unusual consonants or truncation',
+  gritty:     'Gritty & streetwise — nicknames, underworld names, working-class; punchy and informal',
+}
+
 /**
  * generateNamePool()
- * Makes a single LLM call requesting diverse NPC names.
- * Saves to DB and updates the store's namePool.
- * Returns the array of name objects.
+ * Makes a single LLM call requesting diverse NPC names based on config.
+ * Saves to DB and returns the array of name objects.
  */
-export async function generateNamePool(targetCount = 200, llmConfig, onProgress) {
+export async function generateNamePool(namePoolConfig, llmConfig, onProgress) {
+  const {
+    totalNames = 200,
+    origins = {},
+    genderSplit = { m: 40, f: 40, n: 20 },
+    styles = {},
+    nameInstructions = '',
+  } = namePoolConfig
+
+  onProgress?.('Building generation prompt…')
+
+  // Build origin lines with weight multipliers
+  const enabledOrigins = Object.entries(origins).filter(([, v]) => v.enabled)
+  const originLines = enabledOrigins.length > 0
+    ? enabledOrigins.map(([k, v]) =>
+        `  - ${ORIGIN_LABELS[k] || k}${v.weight > 1 ? ` (weight ${v.weight}× — generate proportionally more of these)` : ''}`
+      ).join('\n')
+    : '  - Any cultural origin (no restrictions)'
+
+  // Build gender instruction
+  const gTotal = genderSplit.m + genderSplit.f + genderSplit.n
+  const mPct = gTotal > 0 ? Math.round(genderSplit.m * 100 / gTotal) : 34
+  const fPct = gTotal > 0 ? Math.round(genderSplit.f * 100 / gTotal) : 33
+  const nPct = 100 - mPct - fPct
+
+  // Build style lines
+  const enabledStyles = Object.entries(styles).filter(([, v]) => v.enabled)
+  const styleLines = enabledStyles.length > 0
+    ? enabledStyles.map(([k, v]) =>
+        `  - ${STYLE_LABELS[k] || k}${v.weight > 1 ? ` (weight ${v.weight}×)` : ''}`
+      ).join('\n')
+    : '  - Mix of all feels (mythic, grounded, futuristic, gritty)'
+
+  const prompt = `Generate ${totalNames} unique NPC names for a tabletop RPG fine-tuning dataset.
+
+CULTURAL ORIGINS — distribute names across these origins (higher weight = more names from that origin):
+${originLines}
+
+GENDER — target distribution: ~${mPct}% male (m), ~${fPct}% female (f), ~${nPct}% neutral/ambiguous (n)
+Use exactly "m", "f", or "n" for the gender field.
+
+NAME FEEL — draw from these styles (higher weight = more of that style):
+${styleLines}
+
+HARD RULES:
+- No famous fictional characters, real celebrities, or iconic fantasy names (no Gandalf, Aragorn, Legolas, Hermione, Drizzt, Geralt, etc.)
+- No two names too similar in spelling or sound (no John and Jon, no Sara and Sarah, no Kael and Kael)
+- Each name should be distinct in rhythm and feel from the others — avoid repeating the same root or suffix pattern too often
+- Mix of first-name-only (e.g. "Tomas") and full two-part names (e.g. "Sera Vann") — roughly equal split
+- Names should feel like real characters, not word salad
+
+${nameInstructions.trim() ? `ADDITIONAL REQUIREMENTS:\n${nameInstructions.trim()}\n` : ''}
+Respond with ONLY a JSON array. No explanation. No markdown fences. No text before or after the array.
+Each entry must be exactly:
+{"name":"Full Name","gender":"m|f|n","cultural_origin":"short descriptor","genre_tags":["fantasy","horror","scifi","grounded","weird","any"]}`
+
   onProgress?.('Sending name generation request to LLM…')
-
-  const prompt = `Generate ${targetCount} unique NPC names for a tabletop RPG dataset.
-
-Requirements:
-- Diverse cultural origins: include names that feel European, East Asian, Middle Eastern, African, Latin American, Slavic, Norse, and invented/fantastical
-- Mix of genders: roughly equal male/female/ambiguous
-- Avoid famous fictional characters, real celebrities, or overused fantasy names (no Gandalf, Aragorn, Legolas, etc.)
-- No two names should be too similar (no John and Jon, no Sara and Sarah)
-- Include a range of feels: ancient/mythic, grounded/realistic, futuristic/invented, gritty/streetwise
-- Some names should work across genres; some should be genre-specific
-
-Respond with ONLY a JSON array. No explanation. No markdown fences. Each entry:
-{"name":"Full Name","gender":"m|f|n","cultural_origin":"descriptor","genre_tags":["fantasy","horror","scifi","grounded","weird","any"]}`
 
   const raw = await sendToLlm({
     system: '',
@@ -39,7 +98,6 @@ Respond with ONLY a JSON array. No explanation. No markdown fences. Each entry:
 
   onProgress?.('Parsing name list…')
 
-  // Extract JSON array from the response
   const match = raw.match(/\[[\s\S]*\]/)
   if (!match) throw new Error('LLM did not return a JSON array for name pool')
 
@@ -68,7 +126,6 @@ Respond with ONLY a JSON array. No explanation. No markdown fences. Each entry:
 
   onProgress?.(`Generated ${names.length} names — saving to database…`)
 
-  // Save to DB
   if (window.tavern?.petricore) {
     await window.tavern.petricore.saveNames(names)
   }
@@ -84,22 +141,18 @@ Respond with ONLY a JSON array. No explanation. No markdown fences. Each entry:
  */
 export function assignNames(namePool, genre, count = 1, usedInExample = []) {
   if (!namePool || namePool.length === 0) {
-    // Fallback generic names if pool is empty
     return Array.from({ length: count }, (_, i) => `NPC${i + 1}`)
   }
 
-  // Filter by genre compatibility — prefer names with a matching genre_tag or 'any'
   const compatible = namePool.filter(n =>
     !usedInExample.includes(n.name) &&
     (n.genre_tags?.includes('any') || n.genre_tags?.includes(genre) || n.genre_tags?.length === 0)
   )
 
-  // Fall back to all names (excluding already used) if not enough compatible ones
   const pool = compatible.length >= count
     ? compatible
     : namePool.filter(n => !usedInExample.includes(n.name))
 
-  // Sort by use_count ASC then last_used_at ASC (least used first)
   const sorted = [...pool].sort((a, b) => {
     if (a.use_count !== b.use_count) return a.use_count - b.use_count
     return (a.last_used_at || 0) - (b.last_used_at || 0)

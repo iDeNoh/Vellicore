@@ -34,14 +34,22 @@ export default function PlanBuilder({ onStartGeneration }) {
     setNameLoading(true)
     setNameStatus('Generating…')
     try {
-      const names = await generateNamePool(plan.namePool.totalNames, config.llm, msg => setNameStatus(msg))
-      setNamePool({ totalNames: plan.namePool.totalNames, generated: true, names })
+      const names = await generateNamePool(plan.namePool, config.llm, msg => setNameStatus(msg))
+      setNamePool({ ...plan.namePool, generated: true, names })
       setNameStatus(`${names.length} names ready`)
     } catch (err) {
       setNameStatus(`Error: ${err.message}`)
     } finally {
       setNameLoading(false)
     }
+  }
+
+  function setOriginConfig(origin, updates) {
+    setNamePool({ ...plan.namePool, origins: { ...plan.namePool.origins, [origin]: { ...plan.namePool.origins[origin], ...updates } } })
+  }
+
+  function setStyleConfig(style, updates) {
+    setNamePool({ ...plan.namePool, styles: { ...plan.namePool.styles, [style]: { ...plan.namePool.styles[style], ...updates } } })
   }
 
   function setTagPreset(preset) {
@@ -314,9 +322,11 @@ export default function PlanBuilder({ onStartGeneration }) {
           </div>
 
           {/* Name pool */}
-          <div>
-            <h4 className="text-xs font-ui text-parchment-400 mb-2 uppercase tracking-wide">Name pool</h4>
-            <div className="flex items-center gap-3">
+          <div className="space-y-4">
+            <h4 className="text-xs font-ui text-parchment-400 uppercase tracking-wide">Name pool</h4>
+
+            {/* Count + generate */}
+            <div className="flex items-center gap-3 flex-wrap">
               <label className="flex items-center gap-2">
                 <span className="text-xs text-parchment-500">Total names</span>
                 <input type="number" min={50} max={1000}
@@ -332,20 +342,131 @@ export default function PlanBuilder({ onStartGeneration }) {
                 {plan.namePool.generated ? 'Regenerate' : 'Generate Name Pool'}
               </button>
               <span className={clsx('text-xs font-ui',
-                plan.namePool.generated ? 'text-emerald-400' : 'text-parchment-500')}>
+                plan.namePool.generated ? 'text-emerald-400' : nameStatus.startsWith('Error') ? 'text-rose-400' : 'text-parchment-500')}>
                 {nameStatus}
               </span>
             </div>
+
+            {/* Cultural origins */}
+            <div>
+              <p className="text-xs text-parchment-500 mb-2">
+                Cultural origins
+                <span className="text-parchment-600 ml-1">— weight controls relative frequency (1–5)</span>
+              </p>
+              <div className="grid grid-cols-2 gap-1.5">
+                {Object.entries(plan.namePool.origins || {}).map(([origin, cfg]) => {
+                  const label = {
+                    european: 'European', east_asian: 'East Asian',
+                    middle_eastern: 'Middle Eastern', african: 'African',
+                    latin_american: 'Latin American', slavic: 'Slavic',
+                    norse: 'Norse / Germanic', invented: 'Invented / Fantastical',
+                  }[origin] || origin
+                  return (
+                    <div key={origin} className={clsx(
+                      'flex items-center gap-2 px-2 py-1.5 rounded border transition-colors',
+                      cfg.enabled ? 'border-ink-600 bg-ink-800/50' : 'border-ink-800 opacity-40'
+                    )}>
+                      <input type="checkbox" checked={cfg.enabled}
+                        onChange={e => setOriginConfig(origin, { enabled: e.target.checked })}
+                        className="accent-violet-500 flex-shrink-0"
+                      />
+                      <span className="text-xs text-parchment-300 flex-1 truncate font-ui">{label}</span>
+                      <input type="range" min={1} max={5} step={1}
+                        value={cfg.weight}
+                        disabled={!cfg.enabled}
+                        onChange={e => setOriginConfig(origin, { weight: Number(e.target.value) })}
+                        className="w-16 accent-violet-500"
+                        title={`Weight: ${cfg.weight}`}
+                      />
+                      <span className="text-xs text-parchment-500 w-3">{cfg.weight}</span>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+
+            {/* Gender distribution */}
+            <div>
+              <p className="text-xs text-parchment-500 mb-2">Gender distribution target</p>
+              <div className="space-y-1">
+                {[['m', 'Male'], ['f', 'Female'], ['n', 'Neutral / Ambiguous']].map(([key, label]) => {
+                  const val = plan.namePool.genderSplit?.[key] ?? (key === 'n' ? 20 : 40)
+                  return (
+                    <div key={key} className="flex items-center gap-2">
+                      <span className="text-xs text-parchment-400 w-36">{label}</span>
+                      <input type="range" min={0} max={100}
+                        value={val}
+                        onChange={e => setNamePool({ ...plan.namePool, genderSplit: { ...plan.namePool.genderSplit, [key]: Number(e.target.value) } })}
+                        className="flex-1 accent-violet-500"
+                      />
+                      <span className="text-xs text-parchment-400 w-8 text-right">{val}%</span>
+                    </div>
+                  )
+                })}
+                <DistBar
+                  values={{ Male: plan.namePool.genderSplit?.m ?? 40, Female: plan.namePool.genderSplit?.f ?? 40, Neutral: plan.namePool.genderSplit?.n ?? 20 }}
+                  colors={['bg-sky-500', 'bg-rose-500', 'bg-parchment-600']}
+                />
+                <p className="text-xs text-parchment-600">Used as approximate targets — the LLM will do its best to match.</p>
+              </div>
+            </div>
+
+            {/* Name styles */}
+            <div>
+              <p className="text-xs text-parchment-500 mb-2">
+                Name feel / style
+                <span className="text-parchment-600 ml-1">— weight controls relative frequency (1–5)</span>
+              </p>
+              <div className="space-y-1">
+                {Object.entries(plan.namePool.styles || {}).map(([style, cfg]) => {
+                  const label = {
+                    mythic: 'Mythic & ancient', grounded: 'Grounded & realistic',
+                    futuristic: 'Futuristic & coined', gritty: 'Gritty & streetwise',
+                  }[style] || style
+                  return (
+                    <div key={style} className={clsx('flex items-center gap-2', !cfg.enabled && 'opacity-40')}>
+                      <input type="checkbox" checked={cfg.enabled}
+                        onChange={e => setStyleConfig(style, { enabled: e.target.checked })}
+                        className="accent-violet-500"
+                      />
+                      <span className="text-xs text-parchment-300 w-40 font-ui">{label}</span>
+                      <input type="range" min={1} max={5} step={1}
+                        value={cfg.weight}
+                        disabled={!cfg.enabled}
+                        onChange={e => setStyleConfig(style, { weight: Number(e.target.value) })}
+                        className="flex-1 accent-violet-500"
+                        title={`Weight: ${cfg.weight}`}
+                      />
+                      <span className="text-xs text-parchment-500 w-3">{cfg.weight}</span>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+
+            {/* Additional instructions */}
+            <div>
+              <p className="text-xs text-parchment-500 mb-1">Additional instructions for name generation</p>
+              <textarea
+                rows={2}
+                value={plan.namePool.nameInstructions || ''}
+                onChange={e => setNamePool({ ...plan.namePool, nameInstructions: e.target.value })}
+                placeholder="e.g. Avoid names ending in -us or -ia. Include more single-syllable surnames. Prefer names that work in cyberpunk settings."
+                className="input-field resize-none w-full text-xs"
+              />
+            </div>
+
+            {/* Preview */}
             {plan.namePool.generated && plan.namePool.names.length > 0 && (
-              <div className="mt-2 flex flex-wrap gap-1 max-h-20 overflow-y-auto">
-                {plan.namePool.names.slice(0, 30).map((n, i) => (
+              <div className="flex flex-wrap gap-1 max-h-20 overflow-y-auto pt-1">
+                {plan.namePool.names.slice(0, 40).map((n, i) => (
                   <span key={i} className="px-1.5 py-0.5 bg-ink-800 rounded text-xs text-parchment-400 font-ui">
                     {n.name}
                   </span>
                 ))}
-                {plan.namePool.names.length > 30 && (
+                {plan.namePool.names.length > 40 && (
                   <span className="text-xs text-parchment-500 self-center">
-                    +{plan.namePool.names.length - 30} more
+                    +{plan.namePool.names.length - 40} more
                   </span>
                 )}
               </div>
